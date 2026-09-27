@@ -29,8 +29,9 @@ static const Pal GARC{{.45, .6, .45}, {.45, .55, .75}, {.6, .45, .35}, {.8, .8, 
 static const Pal FENCEC{{.55, .7, .55}, {.6, .7, .85}, {.9, .9, .85}, {.75, .6, .45}, {.7, .7, .7}, {.85, .75, .5}};
 static const Pal WARM{{1, .78, .42}, {1, .88, .62}, {.62, .75, 1}, {1, .62, .34}, {.95, .92, .8}};
 static const V3 STAIRC{.62, .85, .72}, SHOPC{1, .95, .82}, SODIUM{1, .66, .3}, REDL{1, .15, .1};
-static const std::vector<std::string> SHOPW{"ПРОДУКТЫ", "ХЛЕБ", "МОЛОКО", "АПТЕКА", "ОВОЩИ", "ГАСТРОНОМ", "КНИГИ", "ОБУВЬ", "ПОЧТА", "ОПТИКА", "КАФЕ", "РЫБА", "ЦВЕТЫ"};
-static const std::vector<std::string> SLOGANS{"СЛАВА ТРУДУ!", "МИР ТРУД МАЙ", "СЛАВА НАУКЕ", "МИР", "МИРУ МИР!"};
+// Érinski signage (docs/SETTING.md). Keep list lengths: R.pick() indexes the seeded RNG stream.
+static const std::vector<std::string> SHOPW{"ГРОСЕРИЯ", "АРАН", "БАННЕ", "ПОТИГЕРИЯ", "ГЛАСРИ", "БИАТОРГ", "ЛЕАБРИ", "БРОГИ", "ПОШТА", "СУИЛИ", "КАИФЕ", "ИАСКА", "БЛАХИ"};
+static const std::vector<std::string> SLOGANS{"ГЛОИР ТРУДУ!", "СИОХ ТРУД МАЙ", "ГЛОИР ЕОЛАСУ", "СИОХ", "СИОХ ДОН ДОМАН!"};
 static const std::map<std::string, std::string> NAMES{{"khrush", "Khrushchyovka"}, {"panel9", "Panel slab"}, {"tower", "Point tower"}, {"stalinka", "Stalinka"}, {"platten", "Plattenbau"}, {"tenement", "Tenement"}, {"school", "School"}, {"univermag", "Univermag"}, {"church", "Orthodox church"}, {"izba", "Izba"}};
 const std::vector<std::string> TYPES{"khrush", "panel9", "tower", "stalinka", "platten", "tenement", "school", "univermag", "church", "izba"};
 const std::vector<std::string> SOLO{"tenement", "school", "univermag", "church", "izba"};
@@ -389,11 +390,11 @@ static Spec specFor(const std::string& type, Rng& R, int maxBays = 0) {
         S.endTile = TL::BRICK; S.endTint = {.86, .6, .5}; S.hasEndTint = true; S.doorTile = TL::ARCH; S.dormers = R.chance(.55);
     } else if (type == "school") {
         S.floors = 3; S.fh = 3.4; S.plinth = .8; S.wall = "panel"; S.bays = R.integer(12, 18); S.d = 14; S.tint = R.pick(PANELT); S.winTiles = {TL::SCHW};
-        S.accent = "top"; S.acc = R.pick(ACC); S.endWin = "mid"; S.slogan = "ШКОЛА " + std::to_string(R.integer(2, 48)); S.sloganPx = .4;
+        S.accent = "top"; S.acc = R.pick(ACC); S.endWin = "mid"; S.slogan = "СКОЛА " + std::to_string(R.integer(2, 48)); S.sloganPx = .4;
         S.sloganCol = {.95, .95, .9}; S.hasSloganCol = true; S.sloganEm = em({1, .95, .8}, .05); S.hasSloganEm = true;
     } else if (type == "univermag") {
         S.floors = 2; S.fh = 4; S.plinth = .3; S.wall = "panel"; S.bays = R.integer(8, 11); S.d = 19.2; S.tint = R.pick(PANELT); S.shops = true; S.shopsAll = true; S.blankUpper = true;
-        S.slogan = R.pick(std::vector<std::string>{"УНИВЕРМАГ", "УНИВЕРСАМ", "ГАСТРОНОМ"}); S.sloganPx = .42; S.endWin = "all"; S.accent = "top"; S.acc = R.pick(ACC); S.noSigns = true;
+        S.slogan = R.pick(std::vector<std::string>{"ИЛСИОПА", "УНИВЕРСИОП", "БИАТОРГ"}); S.sloganPx = .42; S.endWin = "all"; S.accent = "top"; S.acc = R.pick(ACC); S.noSigns = true;
     }
     if (maxBays && S.bays > maxBays) S.bays = maxBays;
     bool single = type == "tower" || type == "tenement" || type == "school" || type == "univermag";
@@ -795,7 +796,7 @@ static void kiosk(double cx, double cz, int rot, Rng& R) {
     V3 fwd{0, 0, 1};
     light({0, 1.6, 2.2}, &fwd, SHOPC, 7, 1, .05, -.3, 0, 2);
     B.box(-1.7, 2.4, -1.4, 1.7, 2.55, 1.9, TL::METAL, c, 9);
-    std::string w = R.pick(std::vector<std::string>{"ПИВО", "ГАЗЕТЫ", "ТАБАК", "ЦВЕТЫ", "КВАС"});
+    std::string w = R.pick(std::vector<std::string>{"ЛЕАННА", "НУАЧТА", "ТОБАК", "БЛАХИ", "КВАС"});
     double px = .07, tw = B.textW(w, px);
     B.text(w, {-tw / 2, 2.6, 1.3}, {1, 0, 0}, {0, 1, 0}, px, {1, .95, .6}, em({1, .9, .5}, .05));
     addCol(wRect(cx, cz, rot, -1.7, -1.4, 1.7, 1.9));

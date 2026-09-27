@@ -26,18 +26,34 @@ else()
     FetchContent_MakeAvailable(raylib)
 endif()
 
+function(panelka_warnings target)
+    if(MSVC)
+        target_compile_definitions(${target} PRIVATE _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
+        target_compile_options(${target} PRIVATE /W3 /utf-8)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra)
+    endif()
+endfunction()
+
+# Everyday-life rules: plain C++, no raylib, so they can be tested headlessly.
+add_library(panelka_sim STATIC src/sim/sim.cpp)
+target_include_directories(panelka_sim PUBLIC src)
+panelka_warnings(panelka_sim)
+
 add_executable(panelka
     src/main.cpp
     src/gen.cpp
     src/interior.cpp
     src/atlas.cpp)
-target_link_libraries(panelka PRIVATE raylib)
+target_link_libraries(panelka PRIVATE raylib panelka_sim)
+panelka_warnings(panelka)
 
-if(MSVC)
-    target_compile_definitions(panelka PRIVATE _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
-    target_compile_options(panelka PRIVATE /W3 /utf-8)
-else()
-    target_compile_options(panelka PRIVATE -Wall -Wextra)
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(sim_test tests/sim_test.cpp)
+    target_link_libraries(sim_test PRIVATE panelka_sim)
+    panelka_warnings(sim_test)
+    add_test(NAME sim COMMAND sim_test)
 endif()
 
 # The game looks for assets/ next to the executable (or one level up).

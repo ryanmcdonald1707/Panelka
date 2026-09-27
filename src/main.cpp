@@ -1265,7 +1265,8 @@ int main() {
     };
     std::vector<int> cps;
     for (int c = 32; c < 127; c++) cps.push_back(c);
-    cps.push_back(0xB7); cps.push_back(0x2026);
+    for (int c = 0xA0; c < 0x180; c++) cps.push_back(c); // Latin-1 + Extended-A: fadas and háčeks (Érinska, Ó Kovač)
+    cps.push_back(0x2026);
     std::string vt = asset("VT323-Regular.ttf");
     for (int s : {17, 18, 19, 20, 21, 30, 34}) fonts[s] = FileExists(vt.c_str()) ? LoadFontEx(vt.c_str(), s, cps.data(), (int)cps.size()) : GetFontDefault();
     {
