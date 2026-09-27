@@ -901,7 +901,7 @@ static void churchyard(double cx, double cz, int rot, Rng& R) {
 }
 
 /* ================= IZBA ================= */
-struct Izba { double w, d, hw, hd, H, pz; Em win[5]; };
+struct Izba { double w, d, hw, hd, H, pz; Em win[5]; V3 logC; int winTile; };
 static Izba genIzba(Rng& R) {
     double w = R.range(5.6, 7);
     double d = R.range(7, 9);
@@ -945,7 +945,7 @@ static Izba genIzba(Rng& R) {
     B.box(hw + 1.4, fb, pz - 1.1, hw + 1.55, H - .2, pz - .95, TL::WOOD, {1, 1, 1}, 9); B.box(hw + 1.4, fb, pz + .95, hw + 1.55, H - .2, pz + 1.1, TL::WOOD, {1, 1, 1}, 9);
     B.box(hw - .1, H - .25, pz - 1.4, hw + 1.8, H - .05, pz + 1.4, rt, rc, 9);
     B.quad({hw + .05, fb, pz + .6}, {hw + .05, fb, pz - .6}, {hw + .05, fb + 2, pz - .6}, {hw + .05, fb + 2, pz + .6}, TL::WOOD, {.8, .6, .45});
-    return {w, d, hw, hd, H, pz, {izWin[0], izWin[1], izWin[2], izWin[3], izWin[4]}};
+    return {w, d, hw, hd, H, pz, {izWin[0], izWin[1], izWin[2], izWin[3], izWin[4]}, logC, wt};
 }
 static void shed(double x, double z, int rot, Rng&) {
     B.xf(x, z, rot);
@@ -1057,7 +1057,7 @@ static void izbaPlot(double px, int side, Rng& R, Ground& G) {
     rec.kind = 2; rec.type = "izba"; rec.ox = B.ox; rec.oz = B.oz; rec.cs = B.cs; rec.sn = B.sn;
     Izba h = genIzba(R);
     addCol(wRect(hx, dz, rot, -h.hw - .1, -h.hd - .1, h.hw + 1.7, h.hd + .1));
-    rec.col = (int)COL.size() - 1; rec.ihw = h.hw; rec.ihd = h.hd; rec.ifb = .5; rec.iH = h.H; rec.ipz = h.pz;
+    rec.col = (int)COL.size() - 1; rec.ihw = h.hw; rec.ihd = h.hd; rec.ifb = .5; rec.iH = h.H; rec.ipz = h.pz; rec.wc = h.logC; rec.izTile = h.winTile;
     for (int i = 0; i < 5; i++) rec.izWin[i] = h.win[i];
     RECS.push_back(rec);
     double hf = dz - side * h.hd;

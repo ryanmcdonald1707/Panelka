@@ -42,7 +42,7 @@ static const char* FS = R"(#version 330
 uniform sampler2D uTex,uShadow,uLTex,uCTex;
 uniform vec3 uFog,uSunDir,uSunCol,uSky,uGnd,uGridMin,uGridN;
 uniform int uLW,uCW;
-uniform float uAffine,uQ,uSnow,uLights,uTime,uCell,uShadowOn,uShadowTexel,uPointOn;
+uniform float uAffine,uQ,uSnow,uLights,uTime,uCell,uShadowOn,uShadowTexel,uPointOn,uInterior;
 in vec3 vUvw;in vec2 vUvP;in float vDepth;in vec3 vCol;in vec3 vEmit;in float vFog;in float vSnowK;in vec3 vW;in vec3 vN;in vec4 vSC;
 out vec4 fragColor;
 )" DITHER_GLSL R"(
@@ -70,12 +70,15 @@ vec3 pointLights(vec3 P,vec3 N){
   for(int j=0;j<4;j++){
    float id=ids[j];
    if(id<0.5)return acc;
-   int b=(int(id+0.5)-1)*4;
+   int b=(int(id+0.5)-1)*6;
    vec4 a=fL(b),c=fL(b+1);
    if(c.w>uLights)continue;
    vec3 L=a.xyz-P;float d=length(L);
    if(d>a.w)continue;
    vec4 dr=fL(b+2),ex=fL(b+3);
+   // room lights touch only interior surfaces inside their room; world lights only the exterior
+   if((ex.y>0.5)!=(uInterior>0.5))continue;
+   if(ex.y>0.5){vec3 lo=fL(b+4).xyz,hi=fL(b+5).xyz;if(any(lessThan(P,lo))||any(greaterThan(P,hi)))continue;}
    L/=max(d,0.001);
    float ndl=max(dot(N,L),0.0);
    float spot=dr.w<-1.5?1.0:smoothstep(dr.w,dr.w+0.2,dot(-L,dr.xyz));

@@ -105,6 +105,10 @@ struct Light {
     V3 p, d, c;
     double r, i, thr, cone, fl;
     int pri;
+    // Interior lights only light interior geometry inside their room box (world space);
+    // there are no point-light shadows, so this is what keeps them from leaking through walls.
+    bool room = false;
+    V3 lo{}, hi{};
 };
 extern std::vector<std::array<double, 4>> COL;
 extern std::vector<V3> SMOKE;
@@ -136,8 +140,9 @@ struct BuildingRec {
     std::vector<FacadeCell> cells[4]; // [j*floors+f]
     V3 tint{};
     // church / izba extras
-    V3 wc{};
+    V3 wc{};                    // church walls / izba logs
     double ihw = 0, ihd = 0, ifb = 0, iH = 0, ipz = 0;
+    int izTile = 0;             // izba window tile
     Em izWin[5]; // front 0..2, side +x, side -x
 };
 extern std::vector<BuildingRec> RECS;

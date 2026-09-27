@@ -10,7 +10,7 @@ static double H_hash(int a, int b) { return H(a * 7 + 3, b * 13 + 5, 991); }
 
 namespace {
 
-const double T = 0.2;      // wall lining thickness (facade plane -> inner surface)
+const double WALL_T = 0.2; // wall lining thickness (facade plane -> inner surface)
 const double DOOR_H = 2.05;
 const V3 UPV{0, 1, 0};
 Interior* I = nullptr;
@@ -135,7 +135,12 @@ void boxC(double x0, double y0, double z0, double x1, double y1, double z1, int 
     B.box(std::min(x0, x1), y0, std::min(z0, z1), std::max(x0, x1), y1, std::max(z0, z1), t, col, TS(1.2), o);
     if (collide) addBox(x0, z0, x1, z1, y0, y1);
 }
-void lamp(double x, double y, double z, const Em& e, double r = 5.5, double inten = .9) {
+// Building-local box a lamp's light is confined to (the room it hangs in).
+struct Room { double x0, z0, x1, z1, y0, y1; };
+Room room(double xa, double za, double xb, double zb, double y0, double y1) {
+    return {std::min(xa, xb), std::min(za, zb), std::max(xa, xb), std::max(za, zb), y0, y1};
+}
+void lamp(double x, double y, double z, const Em& e, const Room& rm, double r = 5.5, double inten = .9) {
     Opt o;
     o.em = e;
     B.box(x - .16, y - .12, z - .16, x + .16, y, z + .16, TL::LAMP, {1, 1, 1}, 99, o);
@@ -143,6 +148,18 @@ void lamp(double x, double y, double z, const Em& e, double r = 5.5, double inte
     L.p = B.tp({x, y - .2, z});
     L.d = {0, 0, 0};
     L.c = e.c(); L.r = r; L.i = inten; L.thr = e.thr; L.cone = -2; L.fl = e.fl; L.pri = 2;
+    // Grow the box a little so the room's own wall / floor / ceiling faces are inside it,
+    // but not the faces of the rooms behind 0.1 m partitions or 0.2 m slabs.
+    const double g = .08;
+    L.room = true;
+    L.lo = {1e9, rm.y0 - g, 1e9};
+    L.hi = {-1e9, rm.y1 + g, -1e9};
+    for (double cx : {rm.x0 - g, rm.x1 + g})
+        for (double cz : {rm.z0 - g, rm.z1 + g}) {
+            V3 w = B.tp({cx, 0, cz});
+            L.lo[0] = std::min(L.lo[0], w[0]); L.hi[0] = std::max(L.hi[0], w[0]);
+            L.lo[2] = std::min(L.lo[2], w[2]); L.hi[2] = std::max(L.hi[2], w[2]);
+        }
     I->lights.push_back(L);
 }
 void floorRect(double x0, double z0, double x1, double z1, double h, int t, const V3& col, bool walk = true) {
@@ -176,11 +193,14 @@ struct Frame {
 };
 
 void genBlock(const BuildingRec& R, Rng& rng) {
-    const double W = R.w, D = R.d, hw = W / 2, hd = D / 2, pl = R.plinth, fh = R.fh, H = R.H;
+    const double W = R.w, D = R.d, hw = W / 2, hd = D / 2, pl = R.plinth, fh = R.fh, BH = R.H;
     const int F = R.floors, NB = R.bays;
-    const double bw = W / NB, Ls = D * .5, lan0 = Ls - 1.6, hl1 = T + 1.4, top = H - .2;
+    const double bw = W / NB, Ls = D * .5, lan0 = Ls - 1.6, hl1 = WALL_T + 1.4, top = BH - .2;
     auto Y = [&](int k) { return pl + k * fh; };
     auto ceilAt = [&](int k) { return k < F - 1 ? Y(k + 1) - .2 : top; };
+    // Half landing between floor k and k+1. The first one roofs the entrance lobby, so it is
+    // raised where needed to keep >= 2.25 m of headroom under its 0.2 m slab.
+    auto halfH = [&](int k) { double h = Y(k) + fh / 2; return k == 0 ? std::max(h, 2.45) : h; };
     Frame fr{hw, hd, R.entrSide};
     std::set<int> stairs(R.entr.begin(), R.entr.end());
     bool school = R.type == "school", univer = R.type == "univermag";
@@ -213,6 +233,7 @@ void genBlock(const BuildingRec& R, Rng& rng) {
         boxC(fr.X(a0), y0, fr.Z(e0), fr.X(a1), y1, fr.Z(e1), t, col, collide);
     };
     auto fP = [&](double a, double y, double e) { return V3{fr.X(a), y, fr.Z(e)}; };
+    auto fRoom = [&](double a0, double a1, double e0, double e1, double y0, double y1) { return room(fr.X(a0), fr.Z(e0), fr.X(a1), fr.Z(e1), y0, y1); };
     V3 dirA{(double)fr.sa(), 0, 0};
 
     // ---- zones: which flat owns each bay's front (e<Ls) and back (e>Ls) part ----
@@ -261,13 +282,13 @@ void genBlock(const BuildingRec& R, Rng& rng) {
         double bws = sd.len / nb;
         int axis = si % 2 == 0 ? 1 : 0; // lining plane normal axis
         int sign = -(int)(sd.n[0] + sd.n[2]); // inward
-        double cIn = axis == 1 ? sd.o[2] - sd.n[2] * T : sd.o[0] - sd.n[0] * T;
+        double cIn = axis == 1 ? sd.o[2] - sd.n[2] * WALL_T : sd.o[0] - sd.n[0] * WALL_T;
         double cOut = axis == 1 ? sd.o[2] : sd.o[0];
         double cLo = std::min(cIn, cOut), cHi = std::max(cIn, cOut);
         auto W_ = [&](double a) { return axis == 1 ? sd.o[0] + sd.u[0] * a : sd.o[2] + sd.u[2] * a; };
         for (int j = 0; j < nb; j++) {
             double a0 = j * bws, a1 = a0 + bws;
-            double la0 = std::max(a0, T), la1 = std::min(a1, sd.len - T);
+            double la0 = std::max(a0, WALL_T), la1 = std::min(a1, sd.len - WALL_T);
             if (la1 <= la0) continue;
             double w0 = std::min(W_(la0), W_(la1)), w1 = std::max(W_(la0), W_(la1));
             for (int f = -1; f < F; f++) {
@@ -282,7 +303,7 @@ void genBlock(const BuildingRec& R, Rng& rng) {
                 if (tile >= 0 && tileHole(tile, px)) {
                     double hy0 = y0 + px[1] / 32.0 * (cell->y1 - cell->y0), hy1 = y0 + (px[3] + 1) / 32.0 * (cell->y1 - cell->y0);
                     bool door = tile == TL::DOOR_P || tile == TL::DOOR_B || tile == TL::DOOR_S || tile == TL::ARCH;
-                    if (door) hy1 = std::min(hy1, Y(0) + fh / 2 - .2);
+                    if (door) hy1 = std::min(hy1, halfH(0) - .2);
                     double ha0 = W_(a0 + px[0] / 32.0 * bws), ha1 = W_(a0 + (px[2] + 1) / 32.0 * bws);
                     Hole h{std::min(ha0, ha1), std::max(ha0, ha1), hy0, std::min(hy1, y1)};
                     hs.push_back(h);
@@ -349,16 +370,16 @@ void genBlock(const BuildingRec& R, Rng& rng) {
         double a0 = j * bw, a1 = a0 + bw, am = (a0 + a1) / 2;
         const V3 FL{.72, .64, .56};
         // lobby, landings, half landings
-        fFloor(a0, a1, T, hl1, 0, TL::MARBLE, FL);
+        fFloor(a0, a1, WALL_T, hl1, 0, TL::MARBLE, FL);
         for (int k = 0; k < F; k++) {
             fFloor(a0, a1, lan0, Ls, Y(k), TL::MARBLE, FL);
             if (k > 0) fCeil(a0, a1, lan0, Ls, Y(k) - .2, TL::WHITEW, WHITE3);
             // slab edge facing the flights
             { double x0 = fr.X(a0), x1 = fr.X(a1); vrect(1, fr.Z(lan0), -fr.se(), std::min(x0, x1), std::max(x0, x1), Y(k) - .2, Y(k), TL::CONC, {.8, .8, .78}); }
             if (k < F - 1) {
-                double hh = Y(k) + fh / 2;
-                fFloor(a0, a1, T, hl1, hh, TL::MARBLE, FL);
-                fCeil(a0, a1, T, hl1, hh - .2, TL::WHITEW, WHITE3);
+                double hh = halfH(k);
+                fFloor(a0, a1, WALL_T, hl1, hh, TL::MARBLE, FL);
+                fCeil(a0, a1, WALL_T, hl1, hh - .2, TL::WHITEW, WHITE3);
                 double x0 = fr.X(a0), x1 = fr.X(a1);
                 vrect(1, fr.Z(hl1), fr.se(), std::min(x0, x1), std::max(x0, x1), hh - .2, hh, TL::CONC, {.8, .8, .78});
                 steps(a0, am - .05, lan0, Y(k), hl1, hh);          // flight A (left lane) up to the half landing
@@ -367,25 +388,26 @@ void genBlock(const BuildingRec& R, Rng& rng) {
                 railing(am + .06, hl1, hh, lan0, Y(k + 1));
             }
         }
-        fCeil(a0, a1, T, Ls, top, TL::WHITEW, WHITE3);
+        fCeil(a0, a1, WALL_T, Ls, top, TL::WHITEW, WHITE3);
         // ground flight from the lobby up to the first landing, solid block under flight A0
         steps(am + .05, a1, hl1, 0, lan0, Y(0));
         railing(am + .06, hl1, 0, lan0, Y(0));
         {
-            double hh = Y(0) + fh / 2;
+            double hh = halfH(0);
             quadFacing(fP(am, 0, hl1), fP(am, 0, lan0), fP(am, Y(0), lan0), fP(am, hh, hl1), dirA, TL::PODYEZD, POD);
             double x0 = fr.X(a0), x1 = fr.X(am);
             vrect(1, fr.Z(hl1), -fr.se(), std::min(x0, x1), std::max(x0, x1), 0, hh - .2, TL::PODYEZD, POD);
             addBox(fr.X(a0), fr.Z(hl1), fr.X(am), fr.Z(lan0), -1, Y(0) - .02);
         }
-        addBox(fr.X(am - .06), fr.Z(hl1), fr.X(am + .06), fr.Z(lan0), -1, H + 5); // railing collision
+        addBox(fr.X(am - .06), fr.Z(hl1), fr.X(am + .06), fr.Z(lan0), -1, BH + 5); // railing collision
         // lamps: lobby from the door cell, landings from the stair windows
         for (int k = 0; k < F; k++) {
             const FacadeCell& c = R.cells[R.entrSide][j * F + k];
             Em e = c.e ? c.e : em({.62, .85, .72}, .3);
             double cy = k < F - 1 ? Y(k + 1) - .2 : top;
-            lamp(fr.X(am), cy - .02, fr.Z((lan0 + Ls) / 2), e, 5.5, .85);
-            if (k == 0) lamp(fr.X(am), Y(0) + fh / 2 - .22, fr.Z((T + hl1) / 2), e, 4.5, .8);
+            Room shaft = fRoom(a0, a1, WALL_T, Ls, -1, BH + 1);
+            lamp(fr.X(am), cy - .02, fr.Z((lan0 + Ls) / 2), e, shaft, 5.5, .85);
+            if (k == 0) lamp(fr.X(am), halfH(0) - .22, fr.Z((WALL_T + hl1) / 2), e, shaft, 4.5, .8);
         }
         // back wall (stair | back flat), doors per floor
         for (int k = 0; k < F; k++) {
@@ -406,7 +428,7 @@ void genBlock(const BuildingRec& R, Rng& rng) {
         bool sL = stairs.count(b), sR = stairs.count(b + 1);
         for (int k = 0; k < F; k++) {
             double y0 = k == 0 ? 0 : Y(k), y1 = ceilAt(k);
-            // front part (e in [T, Ls])
+            // front part (e in [WALL_T, Ls])
             if (zoneF[b] != zoneF[b + 1] || sL != sR) {
                 std::vector<Hole> hs;
                 int tL, tR;
@@ -420,11 +442,11 @@ void genBlock(const BuildingRec& R, Rng& rng) {
                     B.dquad(fP(c + side * .06, Y(k), he), fP(c + side * .96, Y(k), he), fP(c + side * .96, Y(k) + 2.02, he), fP(c + side * .06, Y(k) + 2.02, he), TL::APTDOOR, {1, 1, 1});
                     addBox(fr.X(c + side * .06), fr.Z(he - .03), fr.X(c + side * .96), fr.Z(he + .03), Y(k), Y(k) + 2.02);
                 }
-                fPartA(c, T, Ls, y0, y1, hs, tL, cL, tR, cR);
+                fPartA(c, WALL_T, Ls, y0, y1, hs, tL, cL, tR, cR);
             }
             if (zoneB[b] != zoneB[b + 1]) {
                 auto pL = flatPaper(zoneB[b], k), pR = flatPaper(zoneB[b + 1], k);
-                fPartA(c, Ls, D - T, k == 0 ? Y(0) : y0, y1, {}, pL.first, pL.second, pR.first, pR.second);
+                fPartA(c, Ls, D - WALL_T, k == 0 ? Y(0) : y0, y1, {}, pL.first, pL.second, pR.first, pR.second);
             }
         }
     }
@@ -494,7 +516,7 @@ void genBlock(const BuildingRec& R, Rng& rng) {
     };
     for (size_t fi = 0; fi < flats.size(); fi++) {
         const Flat& fl = flats[fi];
-        double aS = fl.b0 == 0 ? T : fl.b0 * bw, aE = fl.b1 == NB - 1 ? W - T : (fl.b1 + 1) * bw;
+        double aS = fl.b0 == 0 ? WALL_T : fl.b0 * bw, aE = fl.b1 == NB - 1 ? W - WALL_T : (fl.b1 + 1) * bw;
         // room groups of two bays, counted outward from the stairwell
         std::vector<int> bays;
         if (fl.stair < fl.b0) for (int b = fl.b0; b <= fl.b1; b++) bays.push_back(b);
@@ -508,10 +530,10 @@ void genBlock(const BuildingRec& R, Rng& rng) {
         }
         for (int k = 0; k < F; k++) {
             double y = Y(k), yc = ceilAt(k);
-            fFloor(aS, aE, T, Ls - 1.4, y, TL::PARQUET, {1, 1, 1});
+            fFloor(aS, aE, WALL_T, Ls - 1.4, y, TL::PARQUET, {1, 1, 1});
             fFloor(aS, aE, Ls - 1.4, Ls, y, TL::LINO, {1, 1, 1});
-            fFloor(aS, aE, Ls, D - T, y, TL::PARQUET, {1, 1, 1});
-            fCeil(aS, aE, T, D - T, yc, TL::WHITEW, WHITE3);
+            fFloor(aS, aE, Ls, D - WALL_T, y, TL::PARQUET, {1, 1, 1});
+            fCeil(aS, aE, WALL_T, D - WALL_T, yc, TL::WHITEW, WHITE3);
             auto pp = flatPaper((int)fi, k);
             std::vector<Hole> hf, hb;
             for (auto& g : groups) {
@@ -523,15 +545,15 @@ void genBlock(const BuildingRec& R, Rng& rng) {
             fPartE(Ls, aS, aE, y, yc, hb, pp.first, pp.second, pp.first, pp.second);
             for (size_t g = 0; g + 1 < groups.size(); g++) {
                 double c = fl.stair < fl.b0 ? groups[g].second : groups[g].first;
-                fPartA(c, T, Ls - 1.4, y, yc, {}, pp.first, pp.second, pp.first, pp.second);
-                fPartA(c, Ls, D - T, y, yc, {}, pp.first, pp.second, pp.first, pp.second);
+                fPartA(c, WALL_T, Ls - 1.4, y, yc, {}, pp.first, pp.second, pp.first, pp.second);
+                fPartA(c, Ls, D - WALL_T, y, yc, {}, pp.first, pp.second, pp.first, pp.second);
             }
             // rooms
             for (size_t g = 0; g < groups.size(); g++) {
                 double r0 = groups[g].first + .05, r1 = groups[g].second - .05;
                 for (int fb = 0; fb < 2; fb++) {
                     bool front = fb == 0;
-                    double eF = front ? T : D - T, eH = front ? Ls - 1.4 - .05 : Ls + .05;
+                    double eF = front ? WALL_T : D - WALL_T, eH = front ? Ls - 1.4 - .05 : Ls + .05;
                     int kind;
                     bool shopCell = false;
                     {
@@ -548,21 +570,24 @@ void genBlock(const BuildingRec& R, Rng& rng) {
                     else kind = (int)((g + fb + k) % 2);
                     furnish(r0, r1, eF + (front ? .02 : -.02), eH, k, kind);
                     Em le = facadeEm(front, r0, r1, k);
-                    if (le) lamp(fr.X((r0 + r1) / 2), yc - .02, fr.Z((eF + eH) / 2), le, 5.5, .95);
+                    if (le) lamp(fr.X((r0 + r1) / 2), yc - .02, fr.Z((eF + eH) / 2), le, fRoom(r0, r1, eF, eH, y, yc), 5.5, .95);
                 }
             }
+            // hallway light, on whenever one of the flat's front windows is lit
+            Em he = facadeEm(true, aS, aE, k);
+            if (he) lamp(fr.X((aS + aE) / 2), yc - .02, fr.Z(Ls - .7), he, fRoom(aS, aE, Ls - 1.4, Ls, y, yc), 4, .7);
         }
     }
     // back flats behind stairwells
     for (int j : stairs) {
-        double a0 = j * bw + (j == 0 ? T : 0), a1 = (j + 1) * bw - (j == NB - 1 ? T : 0);
+        double a0 = j * bw + (j == 0 ? WALL_T : 0), a1 = (j + 1) * bw - (j == NB - 1 ? WALL_T : 0);
         for (int k = 0; k < F; k++) {
             double y = Y(k), yc = ceilAt(k);
-            fFloor(a0, a1, Ls, D - T, y, TL::PARQUET, {1, 1, 1});
-            fCeil(a0, a1, Ls, D - T, yc, TL::WHITEW, WHITE3);
-            furnish(a0 + .05, a1 - .05, D - T - .02, Ls + 1.0, k, school ? 4 : univer ? 5 : 0);
+            fFloor(a0, a1, Ls, D - WALL_T, y, TL::PARQUET, {1, 1, 1});
+            fCeil(a0, a1, Ls, D - WALL_T, yc, TL::WHITEW, WHITE3);
+            furnish(a0 + .05, a1 - .05, D - WALL_T - .02, Ls + 1.0, k, school ? 4 : univer ? 5 : 0);
             Em le = facadeEm(false, a0, a1, k);
-            if (le) lamp(fr.X((a0 + a1) / 2), yc - .02, fr.Z((Ls + D) / 2), le, 5, .9);
+            if (le) lamp(fr.X((a0 + a1) / 2), yc - .02, fr.Z((Ls + D) / 2), le, fRoom(a0, a1, Ls, D - WALL_T, y, yc), 5, .9);
         }
     }
 }
@@ -570,6 +595,7 @@ void genBlock(const BuildingRec& R, Rng& rng) {
 /* ================= CHURCH ================= */
 void genChurchInt(const BuildingRec& R, Rng& rng) {
     const V3 WC{.96, .95, .92}, FL{.9, .85, .8};
+    const Room ROOM{-5.4, -11.2, 5.4, 12.4, 0, 20};
     // vestibule (inside the bell tower) and nave
     floorRect(-2.4, 7.2, 2.4, 12.0, 0, TL::MARBLE, FL);
     ceilRect(-2.4, 7.2, 2.4, 12.0, 4.6, TL::WHITEW, WC);
@@ -637,7 +663,7 @@ void genChurchInt(const BuildingRec& R, Rng& rng) {
         B.box(x - .3, 1.8, z - .3, x + .3, 1.86, z + .3, TL::GOLD, {1, 1, 1}, 99);
         Em ce = em({1, .72, .35}, 0);
         ce.fl = .3 + rng();
-        lamp(x, 2.0, z, ce, 4.5, .7);
+        lamp(x, 2.0, z, ce, ROOM, 4.5, .7);
         addBox(x - .3, z - .3, x + .3, z + .3, -1, 3);
     }
     B.box(-.04, 6.2, -.04, .04, 8.8, .04, TL::METAL, {.3, .3, .3}, 99);
@@ -645,17 +671,18 @@ void genChurchInt(const BuildingRec& R, Rng& rng) {
         double a = i * M_PI / 6, x = std::cos(a) * 1.6, z = std::sin(a) * 1.6;
         B.box(x - .07, 6.1, z - .07, x + .07, 6.3, z + .07, TL::GOLD, {1, 1, 1}, 99);
     }
-    lamp(0, 6.1, 0, em({1, .8, .5}, .15), 9, 1.0);
+    lamp(0, 6.1, 0, em({1, .8, .5}, .15), ROOM, 9, 1.0);
 }
 
 /* ================= IZBA ================= */
 void genIzbaInt(const BuildingRec& R, Rng& rng) {
-    const double hw = R.ihw, hd = R.ihd, fb = R.ifb, H = R.iH, pz = R.ipz, t = .15, yc = H - .1;
+    const double hw = R.ihw, hd = R.ihd, fb = R.ifb, IH = R.iH, pz = R.ipz, t = .15, yc = IH - .1;
     const V3 LC{.95, .88, .8};
+    const Room ROOM{-hw, -hd, hw, hd, 0, IH + 1};
     floorRect(-hw + t, -hd + t, hw - t, hd - t, fb, TL::WOOD, {.9, .85, .8});
     ceilRect(-hw + t, -hd + t, hw - t, hd - t, yc, TL::PLANK, {.85, .8, .72});
     double w = hw * 2, d = hd * 2, cw = w / 3, cl = d / 3;
-    auto hy = [&](double f) { return fb + f * (H - fb); };
+    auto hy = [&](double f) { return fb + f * (IH - fb); };
     std::vector<Hole> front;
     for (int i = 0; i < 3; i++) front.push_back({-hw + i * cw + 11 / 32.0 * cw, -hw + i * cw + 21 / 32.0 * cw, hy(8 / 32.0), hy(22 / 32.0)});
     wallHoles(1, hd - t, -1, -hw + t, hw - t, fb, yc, front, TL::LOG, LC, true, hd - t, hd);
@@ -673,8 +700,27 @@ void genIzbaInt(const BuildingRec& R, Rng& rng) {
         for (auto& h : hs) reveals(0, std::min(c, sx * hw), std::max(c, sx * hw), h, fb, TL::WOOD, {1, 1, 1});
         (void)win;
     }
-    // open the door: hide the exterior door quad
+    // open the door: hide the exterior door quad and the side-wall thirds behind it, then
+    // re-add those thirds with the doorway cut out (as genBlock does for entrance cells)
     cutQuad({hw + .05, fb, pz + .6}, {hw + .05, fb, pz - .6}, {hw + .05, fb + 2, pz - .6}, {hw + .05, fb + 2, pz + .6}, {1, 0, 0});
+    {
+        const double dz0 = pz - .6, dz1 = pz + .6, dy1 = fb + 2, vh = IH - fb;
+        for (int i = 0; i < 3; i++) {
+            const double za = hd - i * cl, zb = za - cl; // texture u runs from za to zb
+            if (dz1 <= zb || dz0 >= za) continue;
+            const int tile = i == 1 ? R.izTile : TL::LOG;
+            const Em e = i == 1 ? R.izWin[3] : Em();
+            cutQuad({hw, fb, za}, {hw, fb, zb}, {hw, IH, zb}, {hw, IH, za}, {1, 0, 0});
+            auto piece = [&](double zA, double zB, double y0, double y1) {
+                if (zA - zB < 1e-4 || y1 - y0 < 1e-4) return;
+                B.quadUV({hw, y0, zA}, {hw, y0, zB}, {hw, y1, zB}, {hw, y1, zA}, tile, R.wc, e,
+                         (za - zA) / cl, (y0 - fb) / vh, (za - zB) / cl, (y1 - fb) / vh);
+            };
+            piece(za, std::max(zb, dz1), fb, IH);                          // beside the door, +z
+            piece(std::min(za, dz0), zb, fb, IH);                          // beside the door, -z
+            piece(std::min(za, dz1), std::max(zb, dz0), dy1, IH);          // above the door
+        }
+    }
     // porch (walkable) and its posts
     I->floors.push_back({hw, pz - 1.2, hw + 1.6, pz + 1.2, -1, fb, fb});
     addBox(hw + 1.4, pz - 1.1, hw + 1.55, pz - .95, -1, 5);
@@ -689,13 +735,13 @@ void genIzbaInt(const BuildingRec& R, Rng& rng) {
     vrect(1, rz - .02, -1, rx - 1.2, rx - .4, fb + 1.6, fb + 2.4, TL::ICON, {1, 1, 1}, .8);
     Em lp = em({1, .25, .15}, 0);
     lp.fl = .5 + rng();
-    lamp(rx - .8, fb + 1.55, rz - .25, lp, 3, .6);
+    lamp(rx - .8, fb + 1.55, rz - .25, lp, ROOM, 3, .6);
     boxC(rx - 1.9, fb, rz - 1.7, rx - .9, fb + .76, rz - .8, TL::WOOD, {.8, .62, .45});
     boxC(rx - 2.6, fb, rz - .45, rx - .05, fb + .45, rz - .05, TL::WOOD, {.7, .55, .4});
     boxC(rx - .45, fb, rz - 2.8, rx - .05, fb + .45, rz - .5, TL::WOOD, {.7, .55, .4});
     boxC(-hw + t + .1, fb, hd - t - 2.2, -hw + t + 1.0, fb + .5, hd - t - .1, TL::FABRIC, rng.pick(FABRICS));
     for (int i = 0; i < 5; i++)
-        if (R.izWin[i]) { lamp(0, yc - .02, 0, R.izWin[i], 5, .9); break; }
+        if (R.izWin[i]) { lamp(0, yc - .02, 0, R.izWin[i], ROOM, 5, .9); break; }
 }
 
 } // namespace

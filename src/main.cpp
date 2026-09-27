@@ -13,10 +13,16 @@
 #include <random>
 #include <unordered_map>
 
+// The few GL entry points rlgl does not wrap (point sprites, depth func).
+#if defined(_WIN32)
+#define PANELKA_GLAPI __stdcall
+#else
+#define PANELKA_GLAPI
+#endif
 extern "C" {
-void glEnable(unsigned int cap);
-void glDrawArrays(unsigned int mode, int first, int count);
-void glDepthFunc(unsigned int func);
+void PANELKA_GLAPI glEnable(unsigned int cap);
+void PANELKA_GLAPI glDrawArrays(unsigned int mode, int first, int count);
+void PANELKA_GLAPI glDepthFunc(unsigned int func);
 }
 #define GL_POINTS_ 0x0000
 #define GL_PROGRAM_POINT_SIZE_ 0x8642
@@ -96,7 +102,15 @@ struct Prog {
     void m(const char* n, const M4& a) { rlSetUniformMatrix(L(n), toRl(a)); }
     void tex(const char* n, int slot, unsigned t) { rlActiveTextureSlot(slot); rlEnableTexture(t); i(n, slot); }
 };
-static Prog mkProg(const char* vs, const char* fs) { Prog p; p.id = rlLoadShaderProgram(vs, fs); return p; }
+static Prog mkProg(const char* vs, const char* fs) {
+    Prog p;
+#if RAYLIB_VERSION_MAJOR >= 6
+    p.id = rlLoadShaderProgram(vs, fs);
+#else
+    p.id = rlLoadShaderCode(vs, fs); // raylib 5.x name
+#endif
+    return p;
+}
 
 struct GpuMesh { unsigned vao = 0, vbo = 0; int count = 0; };
 static GpuMesh uploadMesh(const std::vector<float>& V) {
@@ -274,13 +288,15 @@ static void buildLights() {
     std::vector<Light> L = LIGHTS;
     std::stable_sort(L.begin(), L.end(), [](const Light& a, const Light& b) { return a.pri != b.pri ? a.pri > b.pri : a.thr < b.thr; });
     nLights = (int)L.size();
-    int LH = std::max(1, (int)std::ceil(std::max<size_t>(1, L.size()) * 4.0 / LW));
+    // 6 texels per light: pos+radius, colour+threshold, dir+cone, flicker+room flag, room min, room max
+    int LH = std::max(1, (int)std::ceil(std::max<size_t>(1, L.size()) * 6.0 / LW));
     std::vector<float> ld((size_t)LW * LH * 4, 0.f);
     for (size_t i = 0; i < L.size(); i++) {
         const Light& l = L[i];
-        float v[16] = {(float)l.p[0], (float)l.p[1], (float)l.p[2], (float)l.r, (float)(l.c[0] * l.i), (float)(l.c[1] * l.i), (float)(l.c[2] * l.i), (float)l.thr,
-                       (float)l.d[0], (float)l.d[1], (float)l.d[2], (float)l.cone, (float)l.fl, 0, 0, 0};
-        std::memcpy(&ld[i * 16], v, sizeof v);
+        float v[24] = {(float)l.p[0], (float)l.p[1], (float)l.p[2], (float)l.r, (float)(l.c[0] * l.i), (float)(l.c[1] * l.i), (float)(l.c[2] * l.i), (float)l.thr,
+                       (float)l.d[0], (float)l.d[1], (float)l.d[2], (float)l.cone, (float)l.fl, l.room ? 1.f : 0.f, 0, 0,
+                       (float)l.lo[0], (float)l.lo[1], (float)l.lo[2], 0, (float)l.hi[0], (float)l.hi[1], (float)l.hi[2], 0};
+        std::memcpy(&ld[i * 24], v, sizeof v);
     }
     int nx = GRID_N[0], ny = GRID_N[1], nz = GRID_N[2], cells = nx * ny * nz, CH = (int)std::ceil(cells * 6.0 / CW);
     std::vector<float> cd((size_t)CW * CH * 4, 0.f);
@@ -395,16 +411,17 @@ static void applyCuts() {
     }
 }
 static void buildLights();
-static void dropInterior() {
+static void dropInterior(bool rebuildLights = true) {
     if (INT.rec < 0) return;
     restoreCuts();
     freeMesh(intMesh);
     INT = Interior();
     LIGHTS = baseLights;
-    buildLights();
+    if (rebuildLights) buildLights();
 }
 static void activateInterior(int ri) {
-    dropInterior();
+    dropInterior(false); // the light textures are rebuilt once below
+
     INT = buildInterior(ri, state.seed);
     intMesh = uploadMesh(INT.V);
     applyCuts();
@@ -746,11 +763,13 @@ static Color hexc(unsigned h, float a = 1) { return {(unsigned char)(h >> 16), (
 static void initTheme() {
     bool dark = false;
     if (const char* e = getenv("PANELKA_THEME")) dark = std::string(e) == "dark";
+#if defined(__linux__)
     else if (FILE* p = popen("gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null", "r")) {
         char b[128] = {0};
         if (fgets(b, sizeof b, p)) dark = strstr(b, "dark") != nullptr;
         pclose(p);
     }
+#endif
     if (dark) TH = {hexc(0x1d4175), hexc(0x132c52), hexc(0xe6e1d4), hexc(0xece8dc), hexc(0x9fb0cc), hexc(0xc8372d), hexc(0xf0a33a), {0, 0, 0, 140}};
     else TH = {hexc(0x24508f), hexc(0x1a3b6b), hexc(0xf2efe6), hexc(0xf2efe6), hexc(0xb9c6dc), hexc(0xc8372d), hexc(0xf0a33a), {10, 20, 40, 89}};
 }
@@ -1495,13 +1514,14 @@ int main() {
                 p.v3("uSunDir", U.sunDir); p.v3("uSunCol", U.sunCol); p.v3("uSky", U.sky); p.v3("uGnd", U.gnd); p.v3("uFog", U.fog);
                 p.f("uFogNear", (float)U.fogNear); p.f("uFogFar", (float)U.fogFar);
                 p.m("uShadowMat", shadowMat); p.f("uShadowOn", state.shadows); p.f("uShadowTexel", 1.f / SHADOW_RES);
-                p.f("uPointOn", state.points);
+                p.f("uPointOn", state.points); p.f("uInterior", 0);
                 p.v3("uGridMin", {GRID_MIN[0], GRID_MIN[1], GRID_MIN[2]}); p.v3("uGridN", {(double)GRID_N[0], (double)GRID_N[1], (double)GRID_N[2]}); p.f("uCell", (float)GRID_CELL);
                 p.i("uLW", LW); p.i("uCW", CW);
                 p.tex("uTex", 0, atlasTex); p.tex("uShadow", 1, shadowDepth); p.tex("uLTex", 2, lTex); p.tex("uCTex", 3, cTex);
                 rlEnableVertexArray(staticMesh.vao);
                 rlDrawVertexArray(0, staticMesh.count);
                 if (state.walk && intMesh.count) {
+                    p.f("uInterior", 1);
                     rlEnableVertexArray(intMesh.vao);
                     rlDrawVertexArray(0, intMesh.count);
                 }
