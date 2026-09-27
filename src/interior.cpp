@@ -545,7 +545,7 @@ void genBlock(const BuildingRec& R, Rng& rng) {
         const double sa = fr.sa();
         if (kind == 0) { // bedroom: bed and wall carpet on one side wall, wardrobe on the other or by the hallway
             double bl = std::min(2.0, depth - 1.0), cl = std::min(1.8, bl);
-            bool carpet = place([&] { return clear(ra0 + .02, ra0 + .04, .3, .3 + cl, .6, 2.1); });
+            bool carpet = place([&] { return clear(ra0 + .03, ra0 + .05, .3, .3 + cl, .6, 2.1); });
             box(ra0 + .06, ra0 + 1.0, .25, .25 + bl, 0, .45, TL::FABRIC, fab);
             box(ra0 + .1, ra0 + .96, .3, .7, .45, .6, TL::FABRIC, {.95, .95, .95}, false);
             obj(sim::Obj::Bed, ra0 + .06, ra0 + 1.0, .25, .25 + bl, 0, .6);
@@ -553,7 +553,7 @@ void genBlock(const BuildingRec& R, Rng& rng) {
             bedSpot = fP(MA(ra0 + 1.45), y, E(.25 + bl * .5));
             bedLook = {-sa * (mir ? -1 : 1), 0, 0};
             if (carpet) {
-                double cx = fr.X(MA(ra0 + .02)), z0 = fr.Z(E(.3)), z1 = fr.Z(E(.3 + cl));
+                double cx = fr.X(MA(ra0 + .03)), z0 = fr.Z(E(.3)), z1 = fr.Z(E(.3 + cl));
                 vrect(0, cx, (int)(sa * (mir ? -1 : 1)), std::min(z0, z1), std::max(z0, z1), y + .6, y + 2.1, TL::CARPET, {1, 1, 1}, 2.0);
             }
             if (w > 2.2) {
@@ -582,7 +582,7 @@ void genBlock(const BuildingRec& R, Rng& rng) {
                 obj(sim::Obj::Table, mid - .4, mid + .4, depth * .45 - .5, depth * .45 + .5, 0, .8);
             }
             double x0 = fr.X(mid - .9), x1 = fr.X(mid + .9), z0 = fr.Z(E(depth * .45 - 1.1)), z1 = fr.Z(E(depth * .45 + 1.1));
-            hrect(std::min(x0, x1), std::min(z0, z1), std::max(x0, x1), std::max(z0, z1), y + .01, true, TL::CARPET, {1, 1, 1}, 2.2);
+            hrect(std::min(x0, x1), std::min(z0, z1), std::max(x0, x1), std::max(z0, z1), y + .02, true, TL::CARPET, {1, 1, 1}, 2.2);
         } else if (kind == 2) { // kitchen: stove, fridge, sink and wall cupboard in one run, table by the window
             // The run stands along a side wall, clear of the window reveal; failing that, along the hallway wall.
             const bool sink = depth > 3.2;
@@ -639,8 +639,8 @@ void genBlock(const BuildingRec& R, Rng& rng) {
             box(ra1 - 1.02, ra1 - .38, .58, depth - 1.18, 1.0, 1.05, TL::METAL, {.5, .5, .52}, false);
         } else if (kind == 4) { // classroom: blackboard on a side wall without windows
             double b1 = std::min(depth - .6, 3.6);
-            if (place([&] { return clear(ra0 + .02, ra0 + .04, .6, b1, .9, 2.2); })) {
-                double cx = fr.X(MA(ra0 + .02)), z0 = fr.Z(E(.6)), z1 = fr.Z(E(b1));
+            if (place([&] { return clear(ra0 + .03, ra0 + .05, .6, b1, .9, 2.2); })) {
+                double cx = fr.X(MA(ra0 + .03)), z0 = fr.Z(E(.6)), z1 = fr.Z(E(b1));
                 vrect(0, cx, (int)(sa * (mir ? -1 : 1)), std::min(z0, z1), std::max(z0, z1), y + .9, y + 2.2, TL::BOARD, {1, 1, 1}, 3.0);
             }
             mir = false;
@@ -692,7 +692,10 @@ void genBlock(const BuildingRec& R, Rng& rng) {
             bedFound = false;
             bool kitchen = false;
             fFloor(aS, aE, WALL_T, Ls - 1.4, y, TL::PARQUET, {1, 1, 1});
-            fFloor(aS, aE, Ls - 1.4, Ls, y, TL::LINO, {1, 1, 1});
+            if (bathOK) { // lino in the hallway, tiles in the bathroom (no overlay in one plane)
+                fFloor(dir > 0 ? aS : cB, dir > 0 ? cB : aE, Ls - 1.4, Ls, y, TL::LINO, {1, 1, 1});
+                fFloor(bLo, bHi, Ls - 1.4, Ls, y, TL::FLOORTILE, {1, 1, 1});
+            } else fFloor(aS, aE, Ls - 1.4, Ls, y, TL::LINO, {1, 1, 1});
             fFloor(aS, aE, Ls, D - WALL_T, y, TL::PARQUET, {1, 1, 1});
             fCeil(aS, aE, WALL_T, D - WALL_T, yc, TL::WHITEW, WHITE3);
             auto pp = flatPaper((int)fi, k);
@@ -755,11 +758,7 @@ void genBlock(const BuildingRec& R, Rng& rng) {
                 curRoom = addRoom((int)fi, k);
                 std::vector<Hole> door{{Ls - 1.2, Ls - .45, y, y + DOOR_H}};
                 fPartA(cB, Ls - 1.4, Ls, y, yc, door, pp.first, pp.second, pp.first, pp.second);
-                {
-                    double x0 = fr.X(bLo), x1 = fr.X(bHi), z0 = fr.Z(Ls - 1.4), z1 = fr.Z(Ls);
-                    hrect(std::min(x0, x1), std::min(z0, z1), std::max(x0, x1), std::max(z0, z1), y + .004, true, TL::FLOORTILE, {1, 1, 1}, 1.2);
-                }
-                const double off = farIsEnd ? 0 : .05, g = .012;
+                const double off = farIsEnd ? 0 : .05, g = .02; // tile panels stand 2 cm off the walls
                 const V3 WHITE_T{1, 1, 1}, OILPAINT{.72, .84, .8};
                 auto band = [&](auto&& wall) { wall(y, y + 1.6, TL::BATHTILE, WHITE_T, .8); wall(y + 1.6, yc, TL::PAINT, OILPAINT, 1.2); };
                 auto eWall = [&](double e, bool plusE) { // wall plane e, facing +e / -e
@@ -780,15 +779,15 @@ void genBlock(const BuildingRec& R, Rng& rng) {
                 aWall(far - dir * (off + g), -dir, {});
                 auto A = [&](double d) { return far - dir * d; }; // distance in from the far wall
                 const V3 ENAMEL{.96, .96, .94};
-                fBox(A(.72), A(.02 + off), Ls - 1.33, Ls - .07, y, y + .55, TL::PAINT, ENAMEL);
-                fBox(A(.66), A(.08 + off), Ls - 1.27, Ls - .13, y + .5, y + .56, TL::PAINT, {.62, .78, .86}, false);
+                fBox(A(.72), A(.03 + off), Ls - 1.32, Ls - .08, y, y + .55, TL::PAINT, ENAMEL);
+                fBox(A(.66), A(.09 + off), Ls - 1.26, Ls - .14, y + .5, y + .56, TL::PAINT, {.62, .78, .86}, false);
                 fObj(sim::Obj::Bath, A(.72), A(off), Ls - 1.35, Ls - .05, y, y + .7);
-                fBox(A(1.2), A(.82), Ls - .72, Ls - .07, y, y + .42, TL::PAINT, ENAMEL);
-                fBox(A(1.18), A(.84), Ls - .25, Ls - .07, y + .42, y + .85, TL::PAINT, ENAMEL, false);
+                fBox(A(1.2), A(.82), Ls - .72, Ls - .08, y, y + .42, TL::PAINT, ENAMEL);
+                fBox(A(1.18), A(.84), Ls - .25, Ls - .08, y + .42, y + .85, TL::PAINT, ENAMEL, false);
                 fObj(sim::Obj::Toilet, A(1.22), A(.8), Ls - .75, Ls - .05, y, y + .9);
-                fBox(A(1.28), A(.8), Ls - 1.33, Ls - .9, y + .72, y + .86, TL::PAINT, ENAMEL, false);
+                fBox(A(1.28), A(.8), Ls - 1.32, Ls - .9, y + .72, y + .86, TL::PAINT, ENAMEL, false);
                 fBox(A(1.1), A(.98), Ls - 1.3, Ls - 1.18, y, y + .72, TL::PAINT, ENAMEL, false);
-                fBox(A(1.25), A(.83), Ls - 1.337, Ls - 1.33, y + 1.2, y + 1.7, TL::METAL, {.8, .86, .9}, false); // mirror
+                fBox(A(1.25), A(.83), Ls - 1.325, Ls - 1.31, y + 1.2, y + 1.7, TL::METAL, {.8, .86, .9}, false); // mirror, in front of the tiles
                 fObj(sim::Obj::BathSink, A(1.3), A(.78), Ls - 1.35, Ls - .88, y + .55, y + 1.0);
                 Em be = facadeEm(true, aS, aE, k);
                 if (home && !be) be = em(HOME_LAMP, 99);

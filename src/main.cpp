@@ -234,6 +234,47 @@ static void applyEnv() {
     U.snowVis = wk;
 }
 
+/* ================= ATLAS MIPMAPS ================= */
+// Mip levels built tile by tile (32 -> 16 -> ... -> 1 px), so a tile never bleeds into its
+// neighbours. Distant surfaces stop shimmering; near ones keep their crisp pixels (the
+// magnification filter stays nearest). Alpha keeps its meaning: cut-out texels (< 128) keep
+// their coverage instead of fading away, and glass (GL / LO alpha) stays glass.
+static std::vector<uint8_t> atlasWithMips(int& levels) {
+    std::vector<std::vector<uint8_t>> lv{std::vector<uint8_t>(atlas, atlas + AS * AS * 4)};
+    for (int size = AS / 2, tile = T / 2; tile >= 1; size /= 2, tile /= 2) {
+        const std::vector<uint8_t>& src = lv.back();
+        const int ss = size * 2;
+        std::vector<uint8_t> dst((size_t)size * size * 4);
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++) {
+                int sum[4] = {0, 0, 0, 0}, solid = 0, amax = 0;
+                for (int k = 0; k < 4; k++) {
+                    const uint8_t* p = &src[((size_t)(y * 2 + k / 2) * ss + x * 2 + k % 2) * 4];
+                    if (p[3] < 128) continue; // a hole in a cut-out: doesn't tint the colour
+                    for (int c = 0; c < 3; c++) sum[c] += p[c];
+                    sum[3] += p[3];
+                    amax = std::max(amax, (int)p[3]);
+                    solid++;
+                }
+                uint8_t* q = &dst[((size_t)y * size + x) * 4];
+                // keep the cut-out's coverage: 4 of 4 solid always, 3 of 4 on three texels in
+                // four, 2 of 4 on every other texel, 1 of 4 on one in four (a fixed pattern,
+                // so railings and leaves stay see-through instead of turning into solid panels)
+                static const int ORDER[4] = {0, 2, 3, 1};
+                bool keep = solid > ORDER[(y & 1) * 2 + (x & 1)];
+                if (solid && keep) {
+                    for (int c = 0; c < 3; c++) q[c] = (uint8_t)(sum[c] / solid);
+                    q[3] = solid == 4 ? (uint8_t)(sum[3] / 4) : (uint8_t)amax; // averaged, so glass stays glass
+                } else q[0] = q[1] = q[2] = q[3] = 0;
+            }
+        lv.push_back(std::move(dst));
+    }
+    std::vector<uint8_t> out;
+    for (auto& l : lv) out.insert(out.end(), l.begin(), l.end());
+    levels = (int)lv.size();
+    return out;
+}
+
 /* ================= RENDER RESOURCES ================= */
 static Prog mainP, depthP, skyP, ptP;
 static Shader crtShader;
@@ -1366,9 +1407,13 @@ int main() {
     }
 
     buildAtlas();
-    atlasTex = rlLoadTexture(atlas, AS, AS, RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, 1);
-    rlTextureParameters(atlasTex, RL_TEXTURE_MIN_FILTER, RL_TEXTURE_FILTER_NEAREST);
-    rlTextureParameters(atlasTex, RL_TEXTURE_MAG_FILTER, RL_TEXTURE_FILTER_NEAREST);
+    {
+        int levels = 1;
+        std::vector<uint8_t> mips = atlasWithMips(levels);
+        atlasTex = rlLoadTexture(mips.data(), AS, AS, RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, levels);
+        rlTextureParameters(atlasTex, RL_TEXTURE_MIN_FILTER, RL_TEXTURE_FILTER_NEAREST_MIP_LINEAR);
+        rlTextureParameters(atlasTex, RL_TEXTURE_MAG_FILTER, RL_TEXTURE_FILTER_NEAREST);
+    }
     mainP = mkProg(VS, FS); depthP = mkProg(DVS, DFS); skyP = mkProg(SVS, SFS); ptP = mkProg(PVS, PFS);
     crtShader = LoadShaderFromMemory(nullptr, CRTFS);
     shadowFbo = rlLoadFramebuffer();
@@ -1580,7 +1625,7 @@ int main() {
             float time = (float)(t / 1000);
             if (state.shadows && (shadowDirty || std::fabs(state.hour - shadowHour) > .02)) renderShadow();
 
-            M4 proj = perspective(60, (double)sw / shh, state.walk ? .08 : .4, 3000), view = lookAt(camPos, camLook);
+            M4 proj = perspective(60, (double)sw / shh, state.walk ? .12 : .7, 3000), view = lookAt(camPos, camLook);
             BeginTextureMode(rt);
             rlClearColor(0, 0, 0, 255);
             rlClearScreenBuffers();
@@ -1703,6 +1748,10 @@ int main() {
                 if (const char* l = getenv("PANELKA_LIVE_LOOK"))
                     for (int k = 1; k <= (int)sim::Obj::Kiosk; k++)
                         if (std::string(sim::objName((sim::Obj)k)) == l) game::faceObject((sim::Obj)k);
+                if (const char* n = getenv("PANELKA_NUDGE")) { // tiny camera move, for flicker checks
+                    double v = std::atof(n);
+                    Wk.x += v; Wk.z += v * .7; Wk.yaw += v * .02;
+                }
             }
             if (autoFrames == 2 && getenv("PANELKA_ENTER")) { // "<rec>,<floor>,<spot 0 lobby|1 landing|2 flat|3 church/izba>"
                 int ri = 0, k = 0, spot = 0;

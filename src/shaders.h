@@ -26,7 +26,8 @@ void main(){
  vUvw=vec3(uv*w,w);
  vUvP=uv;vDepth=-mv.z;
  float on=step(aExt.x,uLights);
- float fl=aExt.z>0.0?0.45+0.55*fract(sin(aExt.z*917.0+floor(uTime*6.0))*43758.5453):1.0;
+ // a TV-lit window breathes gently rather than jumping about
+ float fl=aExt.z>0.0?0.8+0.2*sin(uTime*1.7+aExt.z*917.0)*sin(uTime*4.3+aExt.z*311.0):1.0;
  vEmit=aEmit*on*fl;
  vFog=clamp((length(mv.xyz)*aExt.y-uFogNear)/(uFogFar-uFogNear),0.0,1.0);
  vSnowK=aExt.w;
@@ -51,12 +52,10 @@ vec4 fC(int i){return texelFetch(uCTex,ivec2(i%uCW,i/uCW),0);}
 float sunShadow(){
  vec3 c=vSC.xyz/vSC.w*0.5+0.5;
  if(uShadowOn<0.5||c.x<0.0||c.x>1.0||c.y<0.0||c.y>1.0||c.z>1.0)return 1.0;
+ // 3x3 taps a texel apart: softer edges, so they don't crawl as the sun moves
  float z=c.z-0.00012,t=uShadowTexel,s=0.0;
- s+=step(z,texture(uShadow,c.xy+vec2(-0.5,-0.5)*t).r);
- s+=step(z,texture(uShadow,c.xy+vec2(0.5,-0.5)*t).r);
- s+=step(z,texture(uShadow,c.xy+vec2(-0.5,0.5)*t).r);
- s+=step(z,texture(uShadow,c.xy+vec2(0.5,0.5)*t).r);
- return s*0.25;
+ for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++)s+=step(z,texture(uShadow,c.xy+vec2(x,y)*t).r);
+ return s/9.0;
 }
 vec3 pointLights(vec3 P,vec3 N){
  vec3 acc=vec3(0.0);
@@ -83,7 +82,7 @@ vec3 pointLights(vec3 P,vec3 N){
    float ndl=max(dot(N,L),0.0);
    float spot=dr.w<-1.5?1.0:smoothstep(dr.w,dr.w+0.2,dot(-L,dr.xyz));
    float att=1.0-d/a.w;att*=att;
-   float fl=ex.x>0.0?0.45+0.55*fract(sin(ex.x*917.0+floor(uTime*6.0))*43758.5453):1.0;
+   float fl=ex.x>0.0?0.8+0.2*sin(uTime*1.7+ex.x*917.0)*sin(uTime*4.3+ex.x*311.0):1.0;
    acc+=c.rgb*(ndl*spot*att*fl);
   }
  }

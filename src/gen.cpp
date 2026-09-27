@@ -492,7 +492,7 @@ static void slogan(const Spec& S, double W, double hd, double H, int side) {
     int n = std::max(2, (int)jsround(tw / 4));
     for (int i = 0; i <= n; i++) { double x = -tw / 2 + tw * i / n; B.beam({x, y0, z - s * .4}, {x, y + px * 6, z - s * .2}, .08, TL::METAL, {.35, .35, .38}); }
     Em se = S.hasSloganEm ? S.sloganEm : em({1, .14, .08}, .03);
-    B.text(S.slogan, {-s * tw / 2, y, z + s * .12}, {s, 0, 0}, {0, 1, 0}, px, S.hasSloganCol ? S.sloganCol : V3{1, .32, .26}, se);
+    B.text(S.slogan, {-s * tw / 2, y, z + s * .14}, {s, 0, 0}, {0, 1, 0}, px, S.hasSloganCol ? S.sloganCol : V3{1, .32, .26}, se);
     light({0, y + px * 3.5, z + s * 1.2}, nullptr, se.c(), std::max(10.0, tw * .6), 1.4, se.thr, 0, 0, 2);
 }
 static Opt topOpt(int top, const V3* topCol = nullptr, const Em& e = Em()) {
@@ -563,7 +563,7 @@ static void genBuilding(const Spec& S, Rng& R) {
                 const std::string& word = R.pick(SHOPW);
                 double px = .075, tw = B.textW(word, px), ac = (a0 + a1) / 2, y = S.plinth + S.fh - .74;
                 B.obox(sd.P(ac - tw / 2 - .2, y - .06, 0), sd.u, sd.n, tw + .4, .65, .12, TL::PAINT, mul(R.pick(ACC), .75), 99);
-                B.text(word, sd.P(ac - tw / 2, y + .02, .135), sd.u, {0, 1, 0}, px, {1, 1, .92}, em({1, .95, .85}, .04));
+                B.text(word, sd.P(ac - tw / 2, y + .02, .15), sd.u, {0, 1, 0}, px, {1, 1, .92}, em({1, .95, .85}, .04));
             }
         }
     }
@@ -612,12 +612,14 @@ static void genBuilding(const Spec& S, Rng& R) {
         }
         if (!S.slogan.empty()) slogan(S, W, hd, H, S.sloganBack ? -1 : 1);
     } else if (S.roof == "gable") {
-        double e = .4, rh = D * .3, yR = H + rh;
+        // Tenements stand wall to wall in rows: no overhang past the ends, or a neighbour of the
+        // same height would get two roofs in one plane (z-fighting)
+        double e = .4, ex = S.type == "tenement" ? 0 : e, rh = D * .3, yR = H + rh;
         int nu = std::max(1, (int)jsround(W / 3));
         int gt = S.endTile >= 0 ? S.endTile : wt.wall;
         V3 gc = S.hasEndTint ? S.endTint : S.tint;
-        B.surf({-hw - e, H, hd + e}, {hw + e, H, hd + e}, {hw + e, yR, 0}, {-hw - e, yR, 0}, nu, 2, TL::RMET, S.roofTint);
-        B.surf({hw + e, H, -hd - e}, {-hw - e, H, -hd - e}, {-hw - e, yR, 0}, {hw + e, yR, 0}, nu, 2, TL::RMET, S.roofTint);
+        B.surf({-hw - ex, H, hd + e}, {hw + ex, H, hd + e}, {hw + ex, yR, 0}, {-hw - ex, yR, 0}, nu, 2, TL::RMET, S.roofTint);
+        B.surf({hw + ex, H, -hd - e}, {-hw - ex, H, -hd - e}, {-hw - ex, yR, 0}, {hw + ex, yR, 0}, nu, 2, TL::RMET, S.roofTint);
         B.surf({hw, H, hd}, {hw, H, -hd}, {hw, yR, 0}, {hw, yR, 0}, 3, 2, gt, gc);
         B.surf({-hw, H, -hd}, {-hw, H, hd}, {-hw, yR, 0}, {-hw, yR, 0}, 3, 2, gt, gc);
         for (int i = R.integer(2, 4); i > 0; i--) {
@@ -647,8 +649,9 @@ static void genBuilding(const Spec& S, Rng& R) {
     if (S.cornice) {
         double c = .45, y0 = H - .75;
         auto co = [&](const char* sk) { Opt o = topOpt(TL::CONC, &S.tint); o.bottom = true; o.skip = sk; return o; };
-        B.box(-hw - c, y0, hd, hw + c, H, hd + c, TL::CORN, S.tint, TS(3, 9), co("b"));
-        B.box(-hw - c, y0, -hd - c, hw + c, H, -hd, TL::CORN, S.tint, TS(3, 9), co("f"));
+        double cx = S.type == "tenement" ? 0 : c; // row neighbours' cornices would overlap in one plane
+        B.box(-hw - cx, y0, hd, hw + cx, H, hd + c, TL::CORN, S.tint, TS(3, 9), co("b"));
+        B.box(-hw - cx, y0, -hd - c, hw + cx, H, -hd, TL::CORN, S.tint, TS(3, 9), co("f"));
         if (S.type != "tenement") {
             B.box(hw, y0, -hd, hw + c, H, hd, TL::CORN, S.tint, TS(3, 9), co("lfb"));
             B.box(-hw - c, y0, -hd, -hw, H, hd, TL::CORN, S.tint, TS(3, 9), co("rfb"));

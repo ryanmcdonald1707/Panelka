@@ -69,6 +69,7 @@ These environment variables are read at start-up. They are useful for reproducib
 | `PANELKA_LIVE=1` | With `AUTOSHOT`: start Live mode |
 | `PANELKA_LIVE_RUN` | Run actions instantly first, e.g. `Toilet:1,Stove:1,Bus stop:1,wait:30,ui:notebook` (object name, 1-based action) |
 | `PANELKA_LIVE_LOOK` | Stand facing the first home object of that name, e.g. `Stove` |
+| `PANELKA_NUDGE=metres` | With `LIVE`: move the camera a tiny amount after placing it (render twice and diff to find flicker) |
 
 Example: `PANELKA_SEED=4242 PANELKA_HOUR=22 PANELKA_AUTOSHOT=night.png ./build/panelka`
 
