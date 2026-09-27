@@ -40,13 +40,15 @@ add_library(panelka_sim STATIC src/sim/sim.cpp)
 target_include_directories(panelka_sim PUBLIC src)
 panelka_warnings(panelka_sim)
 
+# World generation, interiors and the texture atlas: also plain C++ (tested headlessly).
+add_library(panelka_world STATIC src/gen.cpp src/interior.cpp src/atlas.cpp)
+target_link_libraries(panelka_world PUBLIC panelka_sim)
+panelka_warnings(panelka_world)
+
 add_executable(panelka
     src/main.cpp
-    src/gen.cpp
-    src/interior.cpp
-    src/atlas.cpp
     src/game.cpp)
-target_link_libraries(panelka PRIVATE raylib panelka_sim)
+target_link_libraries(panelka PRIVATE raylib panelka_world)
 panelka_warnings(panelka)
 
 include(CTest)
@@ -55,6 +57,10 @@ if(BUILD_TESTING)
     target_link_libraries(sim_test PRIVATE panelka_sim)
     panelka_warnings(sim_test)
     add_test(NAME sim COMMAND sim_test)
+    add_executable(world_test tests/world_test.cpp)
+    target_link_libraries(world_test PRIVATE panelka_world)
+    panelka_warnings(world_test)
+    add_test(NAME world COMMAND world_test)
 endif()
 
 # The game looks for assets/ next to the executable (or one level up).

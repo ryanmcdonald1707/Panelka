@@ -335,6 +335,10 @@ void genBlock(const BuildingRec& R, Rng& rng) {
                     double ha0 = W_(a0 + px[0] / 32.0 * bws), ha1 = W_(a0 + (px[2] + 1) / 32.0 * bws);
                     Hole h{std::min(ha0, ha1), std::max(ha0, ha1), hy0, std::min(hy1, y1)};
                     hs.push_back(h);
+                    if (!door) {
+                        if (axis == 1) I->windows.push_back({h.s0, cLo, h.s1, cHi, h.y0, h.y1});
+                        else I->windows.push_back({cLo, h.s0, cHi, h.s1, h.y0, h.y1});
+                    }
                     if (door && si == R.entrSide) { // open the entrance: hide the exterior door quad, re-add the frame around the hole
                         V3 P0 = add3(sd.o, sd.u, a0), P1 = add3(sd.o, sd.u, a1);
                         cutQuad({P0[0], cell->y0, P0[2]}, {P1[0], cell->y0, P1[2]}, {P1[0], cell->y1, P1[2]}, {P0[0], cell->y1, P0[2]}, sd.n);
@@ -495,74 +499,133 @@ void genBlock(const BuildingRec& R, Rng& rng) {
         // eF: facade-side inner face, eH: hallway-side wall. sgn: +1 if eH > eF
         double y = Y(k), sg = eH > eF ? 1 : -1, depth = std::fabs(eH - eF);
         auto E = [&](double d) { return eF + sg * d; }; // distance from facade wall
+        // Each layout is written against the ra0 side wall; `mir` flips it to the ra1 side.
+        bool mir = false;
+        auto MA = [&](double a) { return mir ? ra0 + ra1 - a : a; };
         auto box = [&](double aa0, double aa1, double d0, double d1, double h0, double h1, int t, const V3& c, bool col = true) {
-            fBox(aa0, aa1, std::min(E(d0), E(d1)), std::max(E(d0), E(d1)), y + h0, y + h1, t, c, col);
+            fBox(MA(aa0), MA(aa1), E(d0), E(d1), y + h0, y + h1, t, c, col);
         };
         auto obj = [&](sim::Obj kd, double aa0, double aa1, double d0, double d1, double h0, double h1) {
-            fObj(kd, aa0, aa1, E(d0), E(d1), y + h0, y + h1);
+            fObj(kd, MA(aa0), MA(aa1), E(d0), E(d1), y + h0, y + h1);
+        };
+        // would this box stand in front of a window?
+        auto clear = [&](double aa0, double aa1, double d0, double d1, double h0, double h1) {
+            V3 p = fP(MA(aa0), y + h0, E(d0)), q = fP(MA(aa1), y + h1, E(d1));
+            V3 lo{std::min(p[0], q[0]), p[1], std::min(p[2], q[2])}, hi{std::max(p[0], q[0]), q[1], std::max(p[2], q[2])};
+            for (auto& win : I->windows)
+                if (frontOfWindow(lo, hi, win)) return false;
+            return true;
+        };
+        // try a layout as written, then mirrored; leaves `mir` set to the one that fits
+        auto place = [&](const std::function<bool()>& fits) {
+            for (bool m : {false, true}) { mir = m; if (fits()) return true; }
+            mir = false;
+            return false;
         };
         V3 fab = rng.pick(FABRICS), wood{.72 + rng() * .15, .52 + rng() * .1, .38};
         double w = ra1 - ra0, mid = (ra0 + ra1) / 2;
-        if (kind == 0) { // bedroom
-            double bl = std::min(2.0, depth - 1.0);
+        const double sa = fr.sa();
+        if (kind == 0) { // bedroom: bed and wall carpet on one side wall, wardrobe on the other or by the hallway
+            double bl = std::min(2.0, depth - 1.0), cl = std::min(1.8, bl);
+            bool carpet = place([&] { return clear(ra0 + .02, ra0 + .04, .3, .3 + cl, .6, 2.1); });
             box(ra0 + .06, ra0 + 1.0, .25, .25 + bl, 0, .45, TL::FABRIC, fab);
             box(ra0 + .1, ra0 + .96, .3, .7, .45, .6, TL::FABRIC, {.95, .95, .95}, false);
             obj(sim::Obj::Bed, ra0 + .06, ra0 + 1.0, .25, .25 + bl, 0, .6);
             bedFound = true;
-            bedSpot = fP(ra0 + 1.45, y, E(.25 + bl * .5));
-            bedLook = {-(double)fr.sa(), 0, 0};
-            if (w > 2.2) {
-                box(ra1 - .65, ra1 - .05, depth - 1.5, depth - .15 > 1.5 ? depth - .15 : 1.5, 0, 2.0, TL::WOOD, wood);
-                obj(sim::Obj::Wardrobe, ra1 - .65, ra1 - .05, depth - 1.5, depth - .15 > 1.5 ? depth - .15 : 1.5, 0, 2.0);
+            bedSpot = fP(MA(ra0 + 1.45), y, E(.25 + bl * .5));
+            bedLook = {-sa * (mir ? -1 : 1), 0, 0};
+            if (carpet) {
+                double cx = fr.X(MA(ra0 + .02)), z0 = fr.Z(E(.3)), z1 = fr.Z(E(.3 + cl));
+                vrect(0, cx, (int)(sa * (mir ? -1 : 1)), std::min(z0, z1), std::max(z0, z1), y + .6, y + 2.1, TL::CARPET, {1, 1, 1}, 2.0);
             }
-            double cx = fr.X(ra0 + .02), z0 = fr.Z(E(.3)), z1 = fr.Z(E(.3 + std::min(1.8, bl)));
-            vrect(0, cx, fr.sa(), std::min(z0, z1), std::max(z0, z1), y + .6, y + 2.1, TL::CARPET, {1, 1, 1}, 2.0);
-        } else if (kind == 1) { // living room
-            double sl = std::min(2.0, depth - 1.4);
+            if (w > 2.2) {
+                double d0 = std::max(.3, depth - 1.5), d1 = depth - .15;
+                if (clear(ra1 - .65, ra1 - .05, d0, d1, 0, 2.0)) {
+                    box(ra1 - .65, ra1 - .05, d0, d1, 0, 2.0, TL::WOOD, wood);
+                    obj(sim::Obj::Wardrobe, ra1 - .65, ra1 - .05, d0, d1, 0, 2.0);
+                } else if (w > 3.6 && clear(ra1 - 1.95, ra1 - .75, depth - .65, depth - .05, 0, 2.0)) { // against the hallway wall instead
+                    box(ra1 - 1.95, ra1 - .75, depth - .65, depth - .05, 0, 2.0, TL::WOOD, wood);
+                    obj(sim::Obj::Wardrobe, ra1 - 1.95, ra1 - .75, depth - .65, depth - .05, 0, 2.0);
+                }
+            }
+        } else if (kind == 1) { // living room: wall unit with the TV on one side, sofa on the other
+            double sl = std::min(2.0, depth - 1.4), ul = std::min(2.8, depth - 1.3);
+            bool unit = place([&] { return clear(ra0 + .05, ra0 + .62, .3, .3 + ul, 0, 2.1); });
+            if (unit) {
+                box(ra0 + .05, ra0 + .55, .3, .3 + ul, 0, 2.1, TL::WOOD, {.45, .3, .2});
+                box(ra0 + .56, ra0 + .6, .3 + ul * .3, .3 + ul * .3 + .7, .8, 1.3, TL::PAINT, {.08, .08, .1}, false); // TV niche screen
+                obj(sim::Obj::TV, ra0 + .3, ra0 + .62, .3 + ul * .3, .3 + ul * .3 + .7, .8, 1.3);
+            }
             box(ra1 - .85, ra1 - .05, .6, .6 + sl, 0, .45, TL::FABRIC, fab);
             box(ra1 - .25, ra1 - .05, .6, .6 + sl, .45, .9, TL::FABRIC, fab, false);
             obj(sim::Obj::Sofa, ra1 - .85, ra1 - .05, .6, .6 + sl, 0, .9);
-            double ul = std::min(2.8, depth - 1.3);
-            box(ra0 + .05, ra0 + .55, .3, .3 + ul, 0, 2.1, TL::WOOD, {.45, .3, .2});
-            box(ra0 + .56, ra0 + .6, .3 + ul * .3, .3 + ul * .3 + .7, .8, 1.3, TL::PAINT, {.08, .08, .1}, false); // TV niche screen
-            obj(sim::Obj::TV, ra0 + .3, ra0 + .62, .3 + ul * .3, .3 + ul * .3 + .7, .8, 1.3);
             if (w > 2.4) {
                 box(mid - .4, mid + .4, depth * .45 - .5, depth * .45 + .5, 0, .74, TL::WOOD, wood);
                 obj(sim::Obj::Table, mid - .4, mid + .4, depth * .45 - .5, depth * .45 + .5, 0, .8);
             }
             double x0 = fr.X(mid - .9), x1 = fr.X(mid + .9), z0 = fr.Z(E(depth * .45 - 1.1)), z1 = fr.Z(E(depth * .45 + 1.1));
             hrect(std::min(x0, x1), std::min(z0, z1), std::max(x0, x1), std::max(z0, z1), y + .01, true, TL::CARPET, {1, 1, 1}, 2.2);
-        } else if (kind == 2) { // kitchen
-            box(ra0 + .05, ra0 + .65, .3, .9, 0, .85, TL::PAINT, {.95, .95, .93});
-            box(ra0 + .05, ra0 + .65, .3, .9, .85, .88, TL::METAL, {.25, .25, .27}, false);
-            obj(sim::Obj::Stove, ra0 + .05, ra0 + .65, .3, .9, 0, .95);
-            box(ra0 + .05, ra0 + .7, 1.0, 1.65, 0, 1.7, TL::PAINT, {.93, .93, .9});
-            obj(sim::Obj::Fridge, ra0 + .05, ra0 + .7, 1.0, 1.65, 0, 1.7);
+        } else if (kind == 2) { // kitchen: stove, fridge, sink and wall cupboard in one run, table by the window
+            // The run stands along a side wall, clear of the window reveal; failing that, along the hallway wall.
+            const bool sink = depth > 3.2;
+            auto runSide = [&] {
+                return clear(ra0 + .05, ra0 + .65, .7, 1.3, 0, .95) && clear(ra0 + .05, ra0 + .7, 1.4, 2.05, 0, 1.7) &&
+                       (!sink || clear(ra0 + .05, ra0 + .65, 2.15, 2.75, 0, 2.1));
+            };
+            // hallway-wall run: positions along a, from the ra0 corner toward the door
+            const bool hallFits = mid - .5 > ra0 + (sink ? 2.1 : 1.4);
+            auto runHall = [&] {
+                return hallFits && clear(ra0 + .05, ra0 + .65, depth - .65, depth - .05, 0, .95) &&
+                       clear(ra0 + .75, ra0 + 1.4, depth - .65, depth - .05, 0, 1.7) && (!sink || clear(ra0 + 1.5, ra0 + 2.1, depth - .65, depth - .05, 0, 2.1));
+            };
+            struct Spot { double a0, a1, d0, d1; };
+            Spot st, fg, sk;
+            bool ok = true;
+            if (place(runSide)) { st = {ra0 + .05, ra0 + .65, .7, 1.3}; fg = {ra0 + .05, ra0 + .7, 1.4, 2.05}; sk = {ra0 + .05, ra0 + .65, 2.15, 2.75}; }
+            else if (place(runHall)) { st = {ra0 + .05, ra0 + .65, depth - .65, depth - .05}; fg = {ra0 + .75, ra0 + 1.4, depth - .65, depth - .05}; sk = {ra0 + 1.5, ra0 + 2.1, depth - .65, depth - .05}; }
+            else ok = false;
+            if (ok) {
+                box(st.a0, st.a1, st.d0, st.d1, 0, .85, TL::PAINT, {.95, .95, .93});
+                box(st.a0, st.a1, st.d0, st.d1, .85, .88, TL::METAL, {.25, .25, .27}, false);
+                obj(sim::Obj::Stove, st.a0, st.a1, st.d0, st.d1, 0, .95);
+                box(fg.a0, fg.a1, fg.d0, fg.d1, 0, 1.7, TL::PAINT, {.93, .93, .9});
+                obj(sim::Obj::Fridge, fg.a0, fg.a1, fg.d0, fg.d1, 0, 1.7);
+                if (sink) { // sink unit with an enamel basin, and a wall cupboard above it
+                    box(sk.a0, sk.a1, sk.d0, sk.d1, 0, .85, TL::PAINT, {.95, .95, .93});
+                    box(sk.a0 + .05, sk.a1 - .05, sk.d0 + .05, sk.d1 - .05, .85, .88, TL::METAL, {.62, .64, .66}, false);
+                    obj(sim::Obj::KitchenSink, sk.a0, sk.a1, sk.d0, sk.d1, 0, 1.0);
+                    bool alongSide = st.d0 < 1; // the cupboard hangs on whichever wall the run is against
+                    double ca0 = sk.a0, ca1 = alongSide ? sk.a0 + .35 : sk.a1, cd0 = alongSide ? sk.d0 : sk.d1 - .35, cd1 = sk.d1;
+                    box(ca0, ca1, cd0, cd1, 1.45, 2.1, TL::PAINT, {.9, .88, .8}, false);
+                    obj(sim::Obj::Cupboard, ca0, ca1, cd0, cd1, 1.45, 2.1);
+                }
+            }
+            // the table and stool go on the other side, by the window
             box(ra1 - 1.0, ra1 - .1, .5, 1.3, 0, .74, TL::WOOD, wood);
             obj(sim::Obj::Table, ra1 - 1.0, ra1 - .1, .5, 1.3, 0, .8);
             box(ra1 - 1.3, ra1 - 1.0, .7, 1.0, 0, .45, TL::WOOD, wood);
-            if (depth > 2.8) {
-                // sink unit with an enamel basin, and a wall cupboard above it
-                box(ra0 + .05, ra0 + .65, 1.75, 2.35, 0, .85, TL::PAINT, {.95, .95, .93});
-                box(ra0 + .1, ra0 + .6, 1.8, 2.3, .85, .88, TL::METAL, {.62, .64, .66}, false);
-                box(ra0 + .05, ra0 + .12, 1.98, 2.08, .88, 1.1, TL::METAL, {.7, .7, .72}, false); // tap
-                obj(sim::Obj::KitchenSink, ra0 + .05, ra0 + .65, 1.75, 2.35, 0, 1.0);
-                box(ra0 + .05, ra0 + .4, 1.75, 2.35, 1.45, 2.1, TL::PAINT, {.9, .88, .8}, false);
-                obj(sim::Obj::Cupboard, ra0 + .05, ra0 + .42, 1.75, 2.35, 1.45, 2.1);
+            // wired radio ("radiopunkt") on the hallway wall, where there is never a window
+            if (w > 2.2 && place([&] { return clear(ra1 - .57, ra1 - .23, depth - .2, depth, 1.45, 1.77); })) {
+                box(ra1 - .55, ra1 - .25, depth - .08, depth, 1.5, 1.72, TL::PAINT, {.55, .38, .26}, false);
+                box(ra1 - .51, ra1 - .29, depth - .09, depth - .08, 1.54, 1.68, TL::PLANK, {.85, .8, .7}, false);
+                obj(sim::Obj::Radio, ra1 - .57, ra1 - .23, depth - .2, depth, 1.45, 1.77);
             }
-            // wired radio ("radiopunkt") on the side wall above the table
-            box(ra1 - .1, ra1 - .02, .62, .92, 1.5, 1.72, TL::PAINT, {.55, .38, .26}, false);
-            box(ra1 - .11, ra1 - .1, .66, .88, 1.54, 1.68, TL::PLANK, {.85, .8, .7}, false);
-            obj(sim::Obj::Radio, ra1 - .2, ra1 - .02, .6, .94, 1.45, 1.77);
-        } else if (kind == 3) { // shop
-            box(ra0 + .05, ra0 + .5, .5, depth - 1.2, 0, 2.0, TL::WOOD, {.6, .45, .3});
-            for (double d = .7; d < depth - 1.4; d += .5)
-                for (double h : {.5, 1.1, 1.6}) box(ra0 + .52, ra0 + .6, d, d + .3, h, h + .25, TL::PAINT, rng.pick(FABRICS), false);
+        } else if (kind == 3) { // shop: shelving along one side wall, counter along the other
+            bool shelves = place([&] { return clear(ra0 + .05, ra0 + .6, .5, depth - 1.2, 0, 2.0); });
+            if (shelves) {
+                box(ra0 + .05, ra0 + .5, .5, depth - 1.2, 0, 2.0, TL::WOOD, {.6, .45, .3});
+                for (double d = .7; d < depth - 1.4; d += .5)
+                    for (double h : {.5, 1.1, 1.6}) box(ra0 + .52, ra0 + .6, d, d + .3, h, h + .25, TL::PAINT, rng.pick(FABRICS), false);
+            }
             box(ra1 - 1.0, ra1 - .4, .6, depth - 1.2, 0, 1.0, TL::WOOD, {.55, .42, .3});
             box(ra1 - 1.02, ra1 - .38, .58, depth - 1.18, 1.0, 1.05, TL::METAL, {.5, .5, .52}, false);
-        } else if (kind == 4) { // classroom
-            double cx = fr.X(ra0 + .02), z0 = fr.Z(E(.6)), z1 = fr.Z(E(std::min(depth - .6, 3.6)));
-            vrect(0, cx, fr.sa(), std::min(z0, z1), std::max(z0, z1), y + .9, y + 2.2, TL::BOARD, {1, 1, 1}, 3.0);
+        } else if (kind == 4) { // classroom: blackboard on a side wall without windows
+            double b1 = std::min(depth - .6, 3.6);
+            if (place([&] { return clear(ra0 + .02, ra0 + .04, .6, b1, .9, 2.2); })) {
+                double cx = fr.X(MA(ra0 + .02)), z0 = fr.Z(E(.6)), z1 = fr.Z(E(b1));
+                vrect(0, cx, (int)(sa * (mir ? -1 : 1)), std::min(z0, z1), std::max(z0, z1), y + .9, y + 2.2, TL::BOARD, {1, 1, 1}, 3.0);
+            }
+            mir = false;
             for (double aa = ra0 + 1.6; aa + .7 < ra1 - .3; aa += 1.3)
                 for (double d = .5; d + 1.2 < depth - .8; d += 1.6) {
                     box(aa, aa + .6, d, d + 1.2, .7, .75, TL::WOOD, {.75, .6, .4}, false);

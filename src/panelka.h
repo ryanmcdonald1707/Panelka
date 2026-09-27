@@ -164,6 +164,13 @@ struct IObj {
     V3 lo, hi;
     int flat = -1, floor = -1, room = -1;
 };
+// Does a box (building-local) stand in front of a window opening: overlapping it along the
+// wall, within `depth` of the wall, and reaching above the sill?
+inline bool frontOfWindow(const V3& lo, const V3& hi, const IBox& w, double depth = .6) {
+    bool normalX = w.x1 - w.x0 < w.z1 - w.z0; // the opening's thin axis is the wall normal
+    double gx = normalX ? depth : -.02, gz = normalX ? -.02 : depth;
+    return lo[0] < w.x1 + gx && hi[0] > w.x0 - gx && lo[2] < w.z1 + gz && hi[2] > w.z0 - gz && hi[1] > w.y0 + .15 && lo[1] < w.y1;
+}
 // A room's ceiling lamps: indices into Interior::lights, and the float ranges of their
 // glowing boxes in Interior::V (so a light switch can turn them on and off).
 struct IRoom {
@@ -189,6 +196,7 @@ struct Interior {
     std::vector<IObj> objs;
     std::vector<IRoom> rooms;
     std::vector<IFlat> homes;
+    std::vector<IBox> windows;   // window openings through the outer walls (building-local)
     int homeFlat = -1, homeFloor = -1;
     void toLocal(double wx, double wz, double& lx, double& lz) const {
         double dx = wx - ox, dz = wz - oz;
