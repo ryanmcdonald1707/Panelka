@@ -249,6 +249,8 @@ static bool hasInfo = false;
 static Info INFO;
 static M4 shadowMat{};
 static bool shadowDirty = true;
+static Interior INT;                // the walk-in interior currently loaded
+static GpuMesh intMesh, glassMesh;
 static double shadowHour = -99, shadowHalf = 136;
 static RenderTexture2D rt{};
 static int rw = 1, rh = 1;
@@ -273,6 +275,10 @@ static void renderShadow() {
         depthP.tex("uTex", 0, atlasTex);
         rlEnableVertexArray(staticMesh.vao);
         rlDrawVertexArray(0, staticMesh.count);
+        if (state.walk && intMesh.count) { // walls and furniture shape the sunlight coming through the windows
+            rlEnableVertexArray(intMesh.vao);
+            rlDrawVertexArray(0, intMesh.count);
+        }
         rlDisableVertexArray();
         rlDisableShader();
     }
@@ -322,9 +328,16 @@ static void buildLights() {
     auto cl = [](int v, int n) { return v < 0 ? 0 : v > n - 1 ? n - 1 : v; };
     for (size_t i = 0; i < L.size(); i++) {
         const Light& l = L[i];
-        int x0 = (int)std::floor((l.p[0] - l.r - GRID_MIN[0]) / c), x1 = (int)std::floor((l.p[0] + l.r - GRID_MIN[0]) / c);
-        int y0 = (int)std::floor((l.p[1] - l.r - GRID_MIN[1]) / c), y1 = (int)std::floor((l.p[1] + l.r - GRID_MIN[1]) / c);
-        int z0 = (int)std::floor((l.p[2] - l.r - GRID_MIN[2]) / c), z1 = (int)std::floor((l.p[2] + l.r - GRID_MIN[2]) / c);
+        // a room lamp only reaches its room, so it only needs the cells its room box touches
+        // (otherwise a block's hundreds of lamps crowd each other out of the 24 slots per cell)
+        double lo[3], hi[3];
+        for (int a = 0; a < 3; a++) {
+            lo[a] = l.p[a] - l.r; hi[a] = l.p[a] + l.r;
+            if (l.room) { lo[a] = std::max(lo[a], l.lo[a]); hi[a] = std::min(hi[a], l.hi[a]); }
+        }
+        int x0 = (int)std::floor((lo[0] - GRID_MIN[0]) / c), x1 = (int)std::floor((hi[0] - GRID_MIN[0]) / c);
+        int y0 = (int)std::floor((lo[1] - GRID_MIN[1]) / c), y1 = (int)std::floor((hi[1] - GRID_MIN[1]) / c);
+        int z0 = (int)std::floor((lo[2] - GRID_MIN[2]) / c), z1 = (int)std::floor((hi[2] - GRID_MIN[2]) / c);
         if (x1 < 0 || z1 < 0 || y1 < 0 || x0 >= nx || z0 >= nz || y0 >= ny) continue;
         for (int y = cl(y0, ny); y <= cl(y1, ny); y++)
             for (int z = cl(z0, nz); z <= cl(z1, nz); z++)
@@ -401,8 +414,6 @@ static void pan(double dx, double dy) {
     O.t[2] = clampN(O.t[2], -140, 140);
 }
 /* ---- interiors (walk mode) ---- */
-static Interior INT;
-static GpuMesh intMesh;
 static std::vector<Light> baseLights;
 static std::vector<std::pair<size_t, std::vector<float>>> cutSaved; // triangle float offset, original data
 static void restoreCuts() {
@@ -433,6 +444,7 @@ static void dropInterior(bool rebuildLights = true) {
     if (INT.rec < 0) return;
     restoreCuts();
     freeMesh(intMesh);
+    freeMesh(glassMesh);
     INT = Interior();
     LIGHTS = baseLights;
     if (rebuildLights) buildLights();
@@ -443,7 +455,9 @@ static void activateInterior(int ri) {
 
     INT = ri == homeRec ? buildInterior(ri, state.seed, homeFlat, homeFloor) : buildInterior(ri, state.seed);
     intMesh = uploadMesh(INT.V);
+    if (!INT.glassV.empty()) glassMesh = uploadMesh(INT.glassV);
     applyCuts();
+    shadowDirty = true; // the interior casts shadows too (sun through the windows)
     LIGHTS = baseLights;
     LIGHTS.insert(LIGHTS.end(), INT.lights.begin(), INT.lights.end());
     buildLights();
@@ -910,6 +924,7 @@ static void doRegen() {
     baseLights = LIGHTS;
     cutSaved.clear();
     freeMesh(intMesh);
+    freeMesh(glassMesh);
     INT = Interior();
     shadowHalf = INFO.half ? INFO.half : 136;
     shadowDirty = true;
@@ -1600,7 +1615,7 @@ int main() {
                 p.v3("uSunDir", U.sunDir); p.v3("uSunCol", U.sunCol); p.v3("uSky", U.sky); p.v3("uGnd", U.gnd); p.v3("uFog", U.fog);
                 p.f("uFogNear", (float)U.fogNear); p.f("uFogFar", (float)U.fogFar);
                 p.m("uShadowMat", shadowMat); p.f("uShadowOn", state.shadows); p.f("uShadowTexel", 1.f / SHADOW_RES);
-                p.f("uPointOn", state.points); p.f("uInterior", 0);
+                p.f("uPointOn", state.points); p.f("uInterior", 0); p.f("uGlass", 0); p.v3("uCam", camPos);
                 p.v3("uGridMin", {GRID_MIN[0], GRID_MIN[1], GRID_MIN[2]}); p.v3("uGridN", {(double)GRID_N[0], (double)GRID_N[1], (double)GRID_N[2]}); p.f("uCell", (float)GRID_CELL);
                 p.i("uLW", LW); p.i("uCW", CW);
                 p.tex("uTex", 0, atlasTex); p.tex("uShadow", 1, shadowDepth); p.tex("uLTex", 2, lTex); p.tex("uCTex", 3, cTex);
@@ -1610,6 +1625,17 @@ int main() {
                     p.f("uInterior", 1);
                     rlEnableVertexArray(intMesh.vao);
                     rlDrawVertexArray(0, intMesh.count);
+                }
+                if (state.walk && glassMesh.count) { // windows last: blended, seen from both sides
+                    p.f("uInterior", 0);
+                    p.f("uGlass", 1);
+                    rlEnableColorBlend();
+                    rlSetBlendMode(RL_BLEND_ALPHA);
+                    rlDisableBackfaceCulling();
+                    rlEnableVertexArray(glassMesh.vao);
+                    rlDrawVertexArray(0, glassMesh.count);
+                    rlEnableBackfaceCulling();
+                    rlDisableColorBlend();
                 }
                 rlDisableVertexArray();
                 rlDisableShader();
@@ -1667,10 +1693,10 @@ int main() {
             if (autoFrames == 1 && getenv("PANELKA_WALK")) setWalk(true);
             if (autoFrames == 1 && getenv("PANELKA_LIVE")) startLife();
             if (autoFrames == 2 && state.walk)
-                if (const char* p = getenv("PANELKA_POS")) { // "x,z,yaw,pitch": stand anywhere (world, radians)
-                    double x = 0, z = 0, yw = 0, pt = 0;
-                    sscanf(p, "%lf,%lf,%lf,%lf", &x, &z, &yw, &pt);
-                    Wk.x = x; Wk.z = z; Wk.yaw = yw; Wk.pitch = pt; Wk.feet = 0; Wk.vy = 0;
+                if (const char* p = getenv("PANELKA_POS")) { // "x,z,yaw,pitch[,feet]": stand anywhere (world, radians)
+                    double x = 0, z = 0, yw = 0, pt = 0, ft = 0;
+                    sscanf(p, "%lf,%lf,%lf,%lf,%lf", &x, &z, &yw, &pt, &ft);
+                    Wk.x = x; Wk.z = z; Wk.yaw = yw; Wk.pitch = pt; Wk.feet = ft; Wk.vy = 0;
                 }
             if (autoFrames == 2 && game::active()) { // PANELKA_LIVE_RUN="Stove:1,wait:30" · PANELKA_LIVE_LOOK=Stove
                 if (const char* r = getenv("PANELKA_LIVE_RUN")) game::runScript(r);

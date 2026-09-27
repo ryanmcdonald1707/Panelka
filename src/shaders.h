@@ -40,9 +40,9 @@ vec3 quant(vec3 c){if(uQ>0.5){float d=b4(gl_FragCoord.xy)-0.5;c=floor(c*31.0+d+0
 
 static const char* FS = R"(#version 330
 uniform sampler2D uTex,uShadow,uLTex,uCTex;
-uniform vec3 uFog,uSunDir,uSunCol,uSky,uGnd,uGridMin,uGridN;
+uniform vec3 uFog,uSunDir,uSunCol,uSky,uGnd,uGridMin,uGridN,uCam;
 uniform int uLW,uCW;
-uniform float uAffine,uQ,uSnow,uLights,uTime,uCell,uShadowOn,uShadowTexel,uPointOn,uInterior;
+uniform float uAffine,uQ,uSnow,uLights,uTime,uCell,uShadowOn,uShadowTexel,uPointOn,uInterior,uGlass;
 in vec3 vUvw;in vec2 vUvP;in float vDepth;in vec3 vCol;in vec3 vEmit;in float vFog;in float vSnowK;in vec3 vW;in vec3 vN;in vec4 vSC;
 out vec4 fragColor;
 )" DITHER_GLSL R"(
@@ -89,18 +89,33 @@ vec3 pointLights(vec3 P,vec3 N){
  }
  return acc;
 }
+// Real glass (transparent pass): Fresnel reflection of the sky, a sun glint, a faint tint.
+vec4 glass(vec3 N,vec4 t,vec3 lit){
+ vec3 V=normalize(uCam-vW);
+ float ndv=abs(dot(N,V)),fr=0.04+0.96*pow(1.0-ndv,5.0);
+ vec3 R=reflect(-V,N);
+ vec3 env=mix(uGnd*0.9,uSky*1.3+uFog*0.2,smoothstep(-0.2,0.45,R.y));
+ float sh=uShadowOn>0.5?sunShadow():1.0;
+ float spec=pow(max(dot(R,normalize(uSunDir)),0.0),90.0)*sh;
+ vec3 body=t.rgb*0.22*lit+vec3(0.03,0.05,0.055);
+ vec3 c=mix(body,env,clamp(0.3+fr*0.7,0.0,1.0))+uSunCol*spec*2.5;
+ float a=clamp(0.24+fr*0.7+spec*0.8+(t.a<0.65?0.08:0.0),0.0,0.94);
+ return vec4(mix(c,uFog,vFog),a);
+}
 void main(){
  // Affine warp only at a distance: near the camera big polygons would smear, so fade to perspective-correct UVs.
  vec2 uv=mix(vUvP,vUvw.xy/vUvw.z,uAffine*smoothstep(4.0,20.0,vDepth));
  vec4 t=texture(uTex,uv);
  if(t.a<0.5)discard;
  vec3 N=normalize(vN);
+ if(uGlass>0.5&&!gl_FrontFacing)N=-N; // windows are seen from both sides
  vec3 alb=t.rgb*vCol;
  float sn=uSnow*vSnowK*smoothstep(0.5,0.85,N.y);
  if(sn>0.0){float g=fract(sin(dot(floor(uv*512.0),vec2(12.9898,78.233)))*43758.5453);alb=mix(alb,vec3(0.9,0.92,0.96)*(0.86+0.14*g),sn);}
  float ndl=max(dot(N,uSunDir),0.0);
  float sh=ndl>0.0?sunShadow():0.0;
  vec3 lit=mix(uGnd,uSky,N.y*0.5+0.5)+uSunCol*(ndl*sh)+pointLights(vW,N);
+ if(uGlass>0.5&&t.a<0.9){vec4 g=glass(N,t,lit);fragColor=vec4(quant(g.rgb),g.a);return;}
  vec3 c=alb*lit;
  if(t.a<0.9){float on=step(0.01,vEmit.r+vEmit.g+vEmit.b);c=mix(c,vEmit*(0.35+1.3*t.rgb),on);}
  c=mix(c,uFog,vFog);

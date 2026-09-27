@@ -150,7 +150,8 @@ LampRef lamp(double x, double y, double z, const Em& e, const Room& rm, double r
     Light L;
     L.p = B.tp({x, y - .2, z});
     L.d = {0, 0, 0};
-    L.c = e.c(); L.r = r; L.i = inten; L.thr = e.thr; L.cone = -2; L.fl = e.fl; L.pri = 2;
+    // Bright enough to read as a lit room through the glass at night (they only light interiors).
+    L.c = e.c(); L.r = r * 1.3; L.i = inten * 2.1; L.thr = e.thr; L.cone = -2; L.fl = e.fl; L.pri = 2;
     // Grow the box a little so the room's own wall / floor / ceiling faces are inside it,
     // but not the faces of the rooms behind 0.1 m partitions or 0.2 m slabs.
     const double g = .08;
@@ -165,6 +166,12 @@ LampRef lamp(double x, double y, double z, const Em& e, const Room& rm, double r
         }
     I->lights.push_back(L);
     return {(int)I->lights.size() - 1, v0, v1};
+}
+// A window for the transparent pass: glass texels (alpha < 0.9) become real glass.
+void glassQuad(const V3& a, const V3& b, const V3& c, const V3& d, int t, const V3& col) {
+    std::swap(B.V, I->glassV);
+    B.quad(a, b, c, d, t, col);
+    std::swap(B.V, I->glassV);
 }
 void addObj(sim::Obj k, double x0, double y0, double z0, double x1, double y1, double z1, int flat, int floor, int room) {
     I->objs.push_back({k, {std::min(x0, x1), std::min(y0, y1), std::min(z0, z1)}, {std::max(x0, x1), std::max(y0, y1), std::max(z0, z1)}, flat, floor, room});
@@ -338,6 +345,11 @@ void genBlock(const BuildingRec& R, Rng& rng) {
                     if (!door) {
                         if (axis == 1) I->windows.push_back({h.s0, cLo, h.s1, cHi, h.y0, h.y1});
                         else I->windows.push_back({cLo, h.s0, cHi, h.s1, h.y0, h.y1});
+                        // swap the facade's painted window for the same cell drawn as real glass
+                        V3 P0 = add3(sd.o, sd.u, a0), P1 = add3(sd.o, sd.u, a1);
+                        V3 q0{P0[0], cell->y0, P0[2]}, q1{P1[0], cell->y0, P1[2]}, q2{P1[0], cell->y1, P1[2]}, q3{P0[0], cell->y1, P0[2]};
+                        cutQuad(q0, q1, q2, q3, sd.n);
+                        glassQuad(q0, q1, q2, q3, cell->tile, cell->col);
                     }
                     if (door && si == R.entrSide) { // open the entrance: hide the exterior door quad, re-add the frame around the hole
                         V3 P0 = add3(sd.o, sd.u, a0), P1 = add3(sd.o, sd.u, a1);
@@ -484,14 +496,20 @@ void genBlock(const BuildingRec& R, Rng& rng) {
     }
 
     // ---- flats: floors, hallway walls, rooms, furniture, lamps ----
+    // A room's lamp follows its windows: it takes the setting of whichever window lights up
+    // earliest, so the room is lit whenever any of its windows glows.
     auto facadeEm = [&](bool front, double ra0, double ra1, int k) {
         int si = front ? R.entrSide : (R.entrSide + 2) % 4;
+        Em best;
         for (int j = 0; j < NB; j++) {
             double c0 = j * bw, c1 = c0 + bw;
             double fa0 = front ? c0 : W - c1, fa1 = front ? c1 : W - c0; // cell range in F-frame a
-            if (fa1 > ra0 + .1 && fa0 < ra1 - .1) { const FacadeCell& c = R.cells[si][j * F + k]; if (c.e) return c.e; }
+            if (fa1 > ra0 + .1 && fa0 < ra1 - .1) {
+                const FacadeCell& c = R.cells[si][j * F + k];
+                if (c.e && (!best || c.e.thr < best.thr)) best = c.e;
+            }
         }
-        return Em();
+        return best;
     };
     bool bedFound = false;
     V3 bedSpot{}, bedLook{};
@@ -827,10 +845,15 @@ void genChurchInt(const BuildingRec& R, Rng& rng) {
         auto hs = winHoles(-7, 14, 4, 99, 99);
         double c = sx * 4.8;
         wallHoles(0, c, -sx, -6.8, 6.8, .8, 8.8, hs, TL::WHITEW, WC, true, std::min(c, sx * 5.0), std::max(c, sx * 5.0));
-        for (auto& h : hs) reveals(0, std::min(c, sx * 5.0), std::max(c, sx * 5.0), h, .8, TL::WHITEW, WC);
+        for (auto& h : hs) {
+            reveals(0, std::min(c, sx * 5.0), std::max(c, sx * 5.0), h, .8, TL::WHITEW, WC);
+            double x = sx * 4.9; // a pane in the middle of the reveal
+            glassQuad({x, h.y0, h.s0}, {x, h.y0, h.s1}, {x, h.y1, h.s1}, {x, h.y1, h.s0}, TL::GLASS, {1, 1, 1});
+        }
     }
     {
         auto hs = winHoles(-5, 10, 3, -1, 1);
+        for (auto& h : hs) glassQuad({h.s0, h.y0, 6.9}, {h.s1, h.y0, 6.9}, {h.s1, h.y1, 6.9}, {h.s0, h.y1, 6.9}, TL::GLASS, {1, 1, 1});
         hs.push_back({-1, 1, .8, 3.2});
         wallHoles(1, 6.8, -1, -4.8, 4.8, .8, 8.8, hs, TL::WHITEW, WC, true, 6.8, 7.0);
         for (auto& h : hs) reveals(1, 6.8, 7.2, h, .8, TL::WHITEW, WC);
@@ -926,6 +949,20 @@ void genIzbaInt(const BuildingRec& R, Rng& rng) {
             piece(za, std::max(zb, dz1), fb, IH);                          // beside the door, +z
             piece(std::min(za, dz0), zb, fb, IH);                          // beside the door, -z
             piece(std::min(za, dz1), std::max(zb, dz0), dy1, IH);          // above the door
+        }
+    }
+    // windows: the painted window thirds of the log walls become real glass
+    {
+        auto swapWin = [&](const V3& a, const V3& b, const V3& c, const V3& d, const V3& n) {
+            cutQuad(a, b, c, d, n);
+            glassQuad(a, b, c, d, R.izTile, R.wc);
+        };
+        for (int i = 0; i < 3; i++)
+            swapWin({-hw + i * cw, fb, hd}, {-hw + (i + 1) * cw, fb, hd}, {-hw + (i + 1) * cw, IH, hd}, {-hw + i * cw, IH, hd}, {0, 0, 1});
+        for (int sx : {1, -1}) {
+            double za = sx > 0 ? hd - cl : -hd + cl, zb = sx > 0 ? za - cl : za + cl;
+            if (sx > 0 && pz + .6 > std::min(za, zb) && pz - .6 < std::max(za, zb)) continue; // rebuilt around the door above
+            swapWin({sx * hw, fb, za}, {sx * hw, fb, zb}, {sx * hw, IH, zb}, {sx * hw, IH, za}, {(double)sx, 0, 0});
         }
     }
     // porch (walkable) and its posts

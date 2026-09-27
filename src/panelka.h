@@ -42,7 +42,7 @@ enum : int {
     // interior tiles (not part of the original atlas)
     WPAPER1 = 63, WPAPER2 = 64, PARQUET = 65, LINO = 66, PODYEZD = 67, WHITEW = 68, APTDOOR = 69, STEP = 70, CARPET = 71,
     ICON = 72, IKONO = 73, STOVE = 74, BOARD = 75, MARBLE = 76, WPAPER3 = 77, FABRIC = 78, STARS = 79,
-    BATHTILE = 80, FLOORTILE = 81
+    BATHTILE = 80, FLOORTILE = 81, GLASS = 82
 };
 extern const std::vector<int> PANEL_W, BRICK_W, STUCCO_W, IZW;
 }
@@ -189,6 +189,7 @@ struct Interior {
     double ox = 0, oz = 0, cs = 1, sn = 0;
     double lx0 = 0, lz0 = 0, lx1 = 0, lz1 = 0; // local footprint
     std::vector<float> V;
+    std::vector<float> glassV;   // windows drawn in the transparent pass (frame opaque, panes glass)
     std::vector<IBox> walls;
     std::vector<IFloor> floors;
     std::vector<Light> lights;

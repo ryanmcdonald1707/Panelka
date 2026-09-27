@@ -48,6 +48,9 @@ int main(int argc, char** argv) {
             Interior in = buildInterior((int)ri, seed);
             interiors++;
             homes += (int)in.homes.size();
+            // every window opening gets glass (6 vertices per quad, one quad per window cell)
+            CHECK(in.glassV.size() / FLOATS_PER_VERT / 6 >= in.windows.size(), "seed %d %s: %zu windows but %zu glass quads", seed, RECS[ri].type.c_str(),
+                  in.windows.size(), in.glassV.size() / FLOATS_PER_VERT / 6);
             // tall furniture must not stand in front of a window
             for (auto& o : in.objs) {
                 if (o.kind == sim::Obj::Bed || o.kind == sim::Obj::Table || o.kind == sim::Obj::Sofa || o.kind == sim::Obj::LightSwitch) continue;
@@ -86,6 +89,7 @@ int main(int argc, char** argv) {
             for (size_t ri = 0; ri < RECS.size(); ri++) {
                 Interior in = buildInterior((int)ri, seed);
                 CHECK(!in.V.empty(), "%s seed %d: empty interior for %s", mode, seed, RECS[ri].type.c_str());
+                CHECK(!in.glassV.empty(), "%s seed %d: no window glass in the %s", mode, seed, RECS[ri].type.c_str());
             }
         }
     std::printf("%d seeds, %d interiors, %d candidate homes: %d checks, %d failed\n", seeds, interiors, homesTotal, checks, failures);

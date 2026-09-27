@@ -604,6 +604,10 @@ void buildAtlas() {
         bool c = ((x >> 3) + (y >> 3)) % 2;
         return c ? C4(176 + n, 96 + n * .6, 70 + n * .5) : C4(214 + n, 204 + n, 180 + n);
     });
+    paint(TL::GLASS, [](int x, int y) { // a plain pane: all glass, with faint streaks and grime (alpha < GL marks glass)
+        double n = H(x, y, 229) * 10, streak = ((x - y + 64) % 13) < 2 ? 18 : 0, grime = y > 26 ? 14 : 0;
+        return C4(150 + n + streak - grime, 168 + n + streak - grime, 172 + n + streak - grime, LO);
+    });
     paint(TL::STARS, [](int x, int y) { // blue church vault with gold stars
         int sx = (x + ((y >> 3) & 1) * 4) & 7, sy = y & 7;
         if ((sx == 3 && sy >= 2 && sy <= 4) || (sy == 3 && sx >= 2 && sx <= 4)) return C4(240, 200, 90);

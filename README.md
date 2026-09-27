@@ -65,7 +65,7 @@ These environment variables are read at start-up. They are useful for reproducib
 | `PANELKA_AUTOSHOT=<file.png>` | Render about 40 frames, save a screenshot to the working directory, then exit |
 | `PANELKA_WALK`, `PANELKA_ENTER=<rec>,<floor>,<spot>` | With `AUTOSHOT`: start in walk mode inside a building (spot `0` lobby, `1` landing, `2` flat, `3` church or izba) |
 | `PANELKA_YAW`, `PANELKA_PITCH` | Extra camera rotation for `ENTER` |
-| `PANELKA_POS=x,z,yaw,pitch` | With `WALK`: stand at that world position (radians) |
+| `PANELKA_POS=x,z,yaw,pitch[,feet]` | With `WALK`: stand at that world position (radians; `feet` is the floor height) |
 | `PANELKA_LIVE=1` | With `AUTOSHOT`: start Live mode |
 | `PANELKA_LIVE_RUN` | Run actions instantly first, e.g. `Toilet:1,Stove:1,Bus stop:1,wait:30,ui:notebook` (object name, 1-based action) |
 | `PANELKA_LIVE_LOOK` | Stand facing the first home object of that name, e.g. `Stove` |
