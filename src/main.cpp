@@ -406,7 +406,9 @@ static GpuMesh intMesh;
 static std::vector<Light> baseLights;
 static std::vector<std::pair<size_t, std::vector<float>>> cutSaved; // triangle float offset, original data
 static void restoreCuts() {
-    for (auto& c : cutSaved) rlUpdateVertexBuffer(staticMesh.vbo, c.second.data(), (int)(c.second.size() * 4), (int)(c.first * 4));
+    // newest first: a triangle hidden by two cut-outs was saved twice, hidden the second time
+    for (auto it = cutSaved.rbegin(); it != cutSaved.rend(); ++it) rlUpdateVertexBuffer(staticMesh.vbo, it->second.data(), (int)(it->second.size() * 4), (int)(it->first * 4));
+    if (!cutSaved.empty()) shadowDirty = true;
     cutSaved.clear();
 }
 static void applyCuts() {
@@ -422,6 +424,7 @@ static void applyCuts() {
             for (int q = 1; q < 3; q++) for (int i = 0; i < 3; i++) deg[q * FLOATS_PER_VERT + i] = deg[i];
             rlUpdateVertexBuffer(staticMesh.vbo, deg.data(), TF * 4, (int)(t * 4));
             cutSaved.push_back({t, orig});
+            shadowDirty = true;
         }
     }
 }

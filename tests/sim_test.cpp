@@ -241,6 +241,24 @@ static void testWorkingDay() {
     CHECK(s.need[Energy] > 5 && s.need[Energy] < 45);
 }
 
+static void testSmallFixes() {
+    // the kiosk queue is fixed for the hour, so the prompt doesn't change frame to frame
+    Sim s = fresh();
+    s.t = 9 * HOUR + 5;
+    double q = s.actions(at(Obj::Kiosk, false))[0].minutes;
+    s.t += 20;
+    CHECK(s.actions(at(Obj::Kiosk, false))[0].minutes == q);
+    CHECK(q >= 2 && q <= 12);
+    // no sleeping when bursting: you'd wake straight up
+    s.t = 22 * HOUR;
+    s.need[Energy] = 30;
+    s.need[Bladder] = 5;
+    for (auto& a : s.actions(at(Obj::Bed, false))) {
+        CHECK(!a.enabled);
+        CHECK(a.why == "You need the toilet first");
+    }
+}
+
 int main() {
     testStart();
     testDecay();
@@ -255,6 +273,7 @@ int main() {
     testBath();
     testSwitch();
     testWorkingDay();
+    testSmallFixes();
     std::printf("%d checks, %d failed\n", checks, failures);
     return failures ? 1 : 0;
 }

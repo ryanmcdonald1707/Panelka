@@ -387,9 +387,12 @@ std::vector<Action> Sim::actions(const Ctx& c) {
         double toMorning = std::fmod(6.5 * HOUR - std::fmod(t, DAY) + DAY, DAY);
         if (toMorning < 30) toMorning += DAY;
         bool night = h >= 18 || h < 6;
-        sleep("Sleep until 06:30", toMorning, night && need[Energy] < 95, night ? "You're not tired" : h < 12 ? "You've only just got up" : "It's the middle of the day");
-        sleep("Sleep until rested", (100 - need[Energy]) / DECAY_SLEEP[Energy] * HOUR + 10, need[Energy] < 80, "You're not tired enough");
-        sleep("Nap for an hour", HOUR, need[Energy] < 95, "You're not tired");
+        bool bursting = need[Bladder] < 10 && !collapsed; // you'd only wake straight up again
+        const char* toilet = "You need the toilet first";
+        sleep("Sleep until 06:30", toMorning, !bursting && night && need[Energy] < 95,
+              bursting ? toilet : night ? "You're not tired" : h < 12 ? "You've only just got up" : "It's the middle of the day");
+        sleep("Sleep until rested", (100 - need[Energy]) / DECAY_SLEEP[Energy] * HOUR + 10, !bursting && need[Energy] < 80, bursting ? toilet : "You're not tired enough");
+        sleep("Nap for an hour", HOUR, !bursting && need[Energy] < 95, bursting ? toilet : "You're not tired");
         break;
     }
     case Obj::Wardrobe:
@@ -498,7 +501,8 @@ std::vector<Action> Sim::actions(const Ctx& c) {
         bool open = h >= 7 && h < close;
         Action a;
         a.label = "Queue at the kiosk";
-        a.minutes = open ? std::round(rnd(2, 12)) : 0;
+        // the queue is as long as it is this hour (fixed, so the prompt doesn't flicker)
+        a.minutes = open ? 2 + (dayOf(t) * 7 + (int)h * 13) % 11 : 0;
         a.ui = UI_KIOSK;
         a.enabled = open;
         a.why = h < 7 ? "Closed. Opens at 07:00" : std::string("Closed. Open 07:00 to ") + (wd == 6 ? "14:00 on Domhnica" : "20:00");

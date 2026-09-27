@@ -253,10 +253,12 @@ void drawPrompt(int W, int H) {
     std::string title = sim::objName(tgt.kind);
     if (!tgt.mine) title += "  (not your flat)";
     int n = 0;
+    bool eShown = false; // E runs the first action that can be done; number keys pick any
     if (tgt.mine)
         for (auto& a : acts) {
             n++;
-            std::string key = n == 1 ? "[E]" : "[" + std::to_string(n) + "]";
+            std::string key = "[" + std::to_string(n) + "]";
+            if (a.enabled && !eShown) { key = "[E]"; eShown = true; }
             std::string dur = a.minutes >= 60 ? " (" + std::to_string((int)std::round(a.minutes / 60)) + " h)" : a.minutes >= 1 ? " (" + std::to_string((int)std::round(a.minutes)) + " min)" : "";
             lines.push_back(a.enabled ? key + " " + a.label + dur : key + " " + a.label + ": " + a.why);
             ok.push_back(a.enabled);
@@ -474,6 +476,8 @@ void update(double dt, const V3& cam, const V3& look, double feet) {
     } else {
         S.advance(dt * WALK_SPEED, sim::Activity::Awake);
         if (S.collapsed) {
+            menu = 0;
+            notebook = false;
             sim::Ctx bed;
             bed.kind = Obj::Bed;
             for (auto& a : S.actions(bed))
