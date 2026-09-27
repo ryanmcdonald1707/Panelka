@@ -592,6 +592,18 @@ void buildAtlas() {
         double n = H(x, y, 224) * 16, w = ((x + y) % 2) ? 10 : -6;
         return C4(200 + n + w, 200 + n + w, 200 + n + w);
     });
+    paint(TL::BATHTILE, [](int x, int y) { // 8px glazed wall tiles, a pale blue one here and there
+        if (x % 8 == 0 || y % 8 == 0) return C4(170, 172, 168);
+        double n = H(x, y, 226) * 8, sheen = (x % 8 == 1 || y % 8 == 1) ? 10 : 0;
+        if (H(x >> 3, y >> 3, 227) > .8) return C4(170 + n + sheen, 204 + n + sheen, 214 + n + sheen);
+        return C4(226 + n + sheen, 228 + n + sheen, 224 + n + sheen);
+    });
+    paint(TL::FLOORTILE, [](int x, int y) { // terracotta and cream floor tiles
+        if (x % 8 == 0 || y % 8 == 0) return C4(96, 88, 80);
+        double n = H(x, y, 228) * 10;
+        bool c = ((x >> 3) + (y >> 3)) % 2;
+        return c ? C4(176 + n, 96 + n * .6, 70 + n * .5) : C4(214 + n, 204 + n, 180 + n);
+    });
     paint(TL::STARS, [](int x, int y) { // blue church vault with gold stars
         int sx = (x + ((y >> 3) & 1) * 4) & 7, sy = y & 7;
         if ((sx == 3 && sy >= 2 && sy <= 4) || (sy == 3 && sx >= 2 && sx <= 4)) return C4(240, 200, 90);

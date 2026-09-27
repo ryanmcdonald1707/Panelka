@@ -117,7 +117,8 @@ struct Sim {
     bool radioOn = false;
     bool radioHeard = false;                // set by the game: the player is within earshot
     bool collapsed = false;                 // energy ran out; the game puts the player to sleep
-    std::deque<Note> notes;
+    std::deque<Note> notes;                 // the latest 40
+    unsigned noteCount = 0;                 // notes ever written (to spot new ones)
     std::mt19937 rng;
 
     explicit Sim(uint32_t seed = 1);

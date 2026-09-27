@@ -1,5 +1,7 @@
 // Panelka — PS1 Eastern Bloc generator (raylib C++ port)
 #pragma once
+#include "sim/objects.h"
+
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -39,7 +41,8 @@ enum : int {
     RAILS = 56, COBBLE = 57, BRANCH = 58, SPRUCE = 59, ROADL = 60, GARDEN = 61, STRAW = 62,
     // interior tiles (not part of the original atlas)
     WPAPER1 = 63, WPAPER2 = 64, PARQUET = 65, LINO = 66, PODYEZD = 67, WHITEW = 68, APTDOOR = 69, STEP = 70, CARPET = 71,
-    ICON = 72, IKONO = 73, STOVE = 74, BOARD = 75, MARBLE = 76, WPAPER3 = 77, FABRIC = 78, STARS = 79
+    ICON = 72, IKONO = 73, STOVE = 74, BOARD = 75, MARBLE = 76, WPAPER3 = 77, FABRIC = 78, STARS = 79,
+    BATHTILE = 80, FLOORTILE = 81
 };
 extern const std::vector<int> PANEL_W, BRICK_W, STUCCO_W, IZW;
 }
@@ -147,10 +150,33 @@ struct BuildingRec {
 };
 extern std::vector<BuildingRec> RECS;
 
+// Usable things out in the street (world-space boxes): bus stops, kiosks.
+struct WObj { sim::Obj kind; V3 lo, hi; };
+extern std::vector<WObj> WOBJ;
+
 /* ================= INTERIORS ================= */
 struct IBox { double x0, z0, x1, z1, y0, y1; };                 // building-local wall / furniture
 struct IFloor { double x0, z0, x1, z1; int axis; double h0, h1; }; // axis -1 flat, 0 slope along x, 1 along z
 struct Cutout { V3 lo, hi, n; };                                 // world AABB of static quads hidden while inside
+// Something usable: a building-local box, which flat / floor it belongs to and which room.
+struct IObj {
+    sim::Obj kind;
+    V3 lo, hi;
+    int flat = -1, floor = -1, room = -1;
+};
+// A room's ceiling lamps: indices into Interior::lights, and the float ranges of their
+// glowing boxes in Interior::V (so a light switch can turn them on and off).
+struct IRoom {
+    int flat = -1, floor = -1;
+    std::vector<int> lights;
+    std::vector<std::pair<size_t, size_t>> lampVerts;
+};
+// A flat the player could live in (has a kitchen, a bedroom and a bathroom).
+struct IFlat {
+    int flat, floor, number;
+    V3 bedSide;       // building-local standing spot next to the bed
+    V3 bedLook;       // building-local direction to face from there
+};
 struct Interior {
     int rec = -1;
     double ox = 0, oz = 0, cs = 1, sn = 0;
@@ -160,9 +186,14 @@ struct Interior {
     std::vector<IFloor> floors;
     std::vector<Light> lights;
     std::vector<Cutout> cuts;
+    std::vector<IObj> objs;
+    std::vector<IRoom> rooms;
+    std::vector<IFlat> homes;
+    int homeFlat = -1, homeFloor = -1;
     void toLocal(double wx, double wz, double& lx, double& lz) const {
         double dx = wx - ox, dz = wz - oz;
         lx = dx * cs - dz * sn; lz = dx * sn + dz * cs;
     }
 };
-Interior buildInterior(int rec, double seed);
+// homeFlat / homeFloor: the player's flat, whose lamps are always built (and switchable).
+Interior buildInterior(int rec, double seed, int homeFlat = -1, int homeFloor = -1);

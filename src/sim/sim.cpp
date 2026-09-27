@@ -60,9 +60,11 @@ const char* needWarning(Need n, double v) {
     return v < 12 ? W[n][1] : v < 30 ? W[n][0] : "";
 }
 //                                                    Hunger Thirst Energy Bladder Hygiene Mood
-const std::array<double, NEED_N> Sim::DECAY_AWAKE{-4.5, -6.0, -5.5, -7.0, -2.0, 0};
+// A full day (up at 06:30, a shift, bed at 23:00) should leave you tired, not collapsed:
+// ~100 energy -> ~20. Seven and a half hours asleep puts it back.
+const std::array<double, NEED_N> Sim::DECAY_AWAKE{-4.5, -5.0, -4.0, -7.0, -2.0, 0};
 const std::array<double, NEED_N> Sim::DECAY_SLEEP{-1.5, -2.0, 12.5, -2.5, -1.0, 0};
-const std::array<double, NEED_N> Sim::DECAY_WORK{-6.0, -3.0, -7.0, 0.0, -3.5, 0};
+const std::array<double, NEED_N> Sim::DECAY_WORK{-6.0, -3.0, -5.5, 0.0, -3.5, 0};
 
 /* ================= ITEMS ================= */
 const ItemDef& itemDef(Item i) {
@@ -124,13 +126,14 @@ Sim::Sim(uint32_t seed) : rng(seed) { need.fill(70); }
 
 void Sim::note(const std::string& s) {
     notes.push_back({t, s});
+    noteCount++;
     while (notes.size() > 40) notes.pop_front();
 }
 
 void Sim::newLife(const Profile& p, const std::string& fridgeKey, const std::string& cupboardKey) {
     me = p;
     t = 6.5 * HOUR;
-    need = {60, 55, 85, 40, 70, 60};
+    need = {60, 55, 92, 40, 70, 60};
     cash = 1250;
     carried.fill(0);
     containers.clear();
@@ -384,7 +387,7 @@ std::vector<Action> Sim::actions(const Ctx& c) {
         double toMorning = std::fmod(6.5 * HOUR - std::fmod(t, DAY) + DAY, DAY);
         if (toMorning < 30) toMorning += DAY;
         bool night = h >= 18 || h < 6;
-        sleep("Sleep until 06:30", toMorning, night && need[Energy] < 95, night ? "You're not tired" : "It's the middle of the day");
+        sleep("Sleep until 06:30", toMorning, night && need[Energy] < 95, night ? "You're not tired" : h < 12 ? "You've only just got up" : "It's the middle of the day");
         sleep("Sleep until rested", (100 - need[Energy]) / DECAY_SLEEP[Energy] * HOUR + 10, need[Energy] < 80, "You're not tired enough");
         sleep("Nap for an hour", HOUR, need[Energy] < 95, "You're not tired");
         break;

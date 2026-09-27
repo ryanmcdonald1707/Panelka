@@ -44,7 +44,8 @@ add_executable(panelka
     src/main.cpp
     src/gen.cpp
     src/interior.cpp
-    src/atlas.cpp)
+    src/atlas.cpp
+    src/game.cpp)
 target_link_libraries(panelka PRIVATE raylib panelka_sim)
 panelka_warnings(panelka)
 

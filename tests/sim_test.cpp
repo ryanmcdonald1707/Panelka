@@ -215,6 +215,32 @@ static void testSwitch() {
     CHECK(s.actions(c)[0].label == "Switch the light off");
 }
 
+// A plain working day, eating and drinking sensibly, ends tired but on your feet.
+static void testWorkingDay() {
+    Sim s = fresh();
+    Ctx kitchen = at(Obj::Table);
+    auto doIt = [&](Obj k, const std::string& label, bool inKitchen = true) {
+        Ctx c = inKitchen ? kitchen : at(k, false);
+        c.kind = k;
+        auto v = s.actions(c);
+        const Action* a = find(v, label);
+        CHECK(a && a->enabled);
+        if (a) s.perform(*a);
+    };
+    doIt(Obj::Toilet, "Use the toilet", false);
+    doIt(Obj::Stove, "Make a cup of tea with sugar");
+    doIt(Obj::Table, "Eat bread and butter");
+    doIt(Obj::Table, "Pack a lunch for work");
+    s.t = 7 * HOUR;
+    doIt(Obj::BusStop, "Take bus 14 to the Tractor Works", false);
+    CHECK(!s.collapsed);
+    doIt(Obj::Stove, "Make a cup of tea with sugar");
+    doIt(Obj::Table, "Eat bread with sausage");
+    s.advance(23 * HOUR - s.t, Activity::Awake);
+    CHECK(!s.collapsed);
+    CHECK(s.need[Energy] > 5 && s.need[Energy] < 45);
+}
+
 int main() {
     testStart();
     testDecay();
@@ -228,6 +254,7 @@ int main() {
     testKiosk();
     testBath();
     testSwitch();
+    testWorkingDay();
     std::printf("%d checks, %d failed\n", checks, failures);
     return failures ? 1 : 0;
 }

@@ -140,10 +140,13 @@ struct Room { double x0, z0, x1, z1, y0, y1; };
 Room room(double xa, double za, double xb, double zb, double y0, double y1) {
     return {std::min(xa, xb), std::min(za, zb), std::max(xa, xb), std::max(za, zb), y0, y1};
 }
-void lamp(double x, double y, double z, const Em& e, const Room& rm, double r = 5.5, double inten = .9) {
+struct LampRef { int light; size_t v0, v1; };
+LampRef lamp(double x, double y, double z, const Em& e, const Room& rm, double r = 5.5, double inten = .9) {
     Opt o;
     o.em = e;
+    size_t v0 = B.V.size();
     B.box(x - .16, y - .12, z - .16, x + .16, y, z + .16, TL::LAMP, {1, 1, 1}, 99, o);
+    size_t v1 = B.V.size();
     Light L;
     L.p = B.tp({x, y - .2, z});
     L.d = {0, 0, 0};
@@ -161,7 +164,22 @@ void lamp(double x, double y, double z, const Em& e, const Room& rm, double r = 
             L.lo[2] = std::min(L.lo[2], w[2]); L.hi[2] = std::max(L.hi[2], w[2]);
         }
     I->lights.push_back(L);
+    return {(int)I->lights.size() - 1, v0, v1};
 }
+void addObj(sim::Obj k, double x0, double y0, double z0, double x1, double y1, double z1, int flat, int floor, int room) {
+    I->objs.push_back({k, {std::min(x0, x1), std::min(y0, y1), std::min(z0, z1)}, {std::max(x0, x1), std::max(y0, y1), std::max(z0, z1)}, flat, floor, room});
+}
+int addRoom(int flat, int floor) {
+    I->rooms.push_back({flat, floor, {}, {}});
+    return (int)I->rooms.size() - 1;
+}
+// home lamps outrank everything for a slot in the light grid, so switching one on always shows
+void roomLamp(int room, bool home, const LampRef& L) {
+    if (home) I->lights[L.light].pri = 4;
+    I->rooms[room].lights.push_back(L.light);
+    I->rooms[room].lampVerts.push_back({L.v0, L.v1});
+}
+const V3 HOME_LAMP{1, .86, .64}; // the player's own bulbs; off (threshold 99) until switched on
 void floorRect(double x0, double z0, double x1, double z1, double h, int t, const V3& col, bool walk = true) {
     hrect(std::min(x0, x1), std::min(z0, z1), std::max(x0, x1), std::max(z0, z1), h, true, t, col);
     if (walk) I->floors.push_back({std::min(x0, x1), std::min(z0, z1), std::max(x0, x1), std::max(z0, z1), -1, h, h});
@@ -234,6 +252,16 @@ void genBlock(const BuildingRec& R, Rng& rng) {
     };
     auto fP = [&](double a, double y, double e) { return V3{fr.X(a), y, fr.Z(e)}; };
     auto fRoom = [&](double a0, double a1, double e0, double e1, double y0, double y1) { return room(fr.X(a0), fr.Z(e0), fr.X(a1), fr.Z(e1), y0, y1); };
+    // usable objects go to the flat / floor / room being built
+    int curFlat = -1, curFloor = -1, curRoom = -1;
+    auto fObj = [&](sim::Obj kd, double a0, double a1, double e0, double e1, double y0, double y1) {
+        addObj(kd, fr.X(a0), y0, fr.Z(e0), fr.X(a1), y1, fr.Z(e1), curFlat, curFloor, curRoom);
+    };
+    // a switch plate on a wall (e0..e1 is its few-cm thickness) that works the room's lamps
+    auto lightSwitch = [&](double a0, double a1, double e0, double e1, double y) {
+        fBox(a0, a1, e0, e1, y + 1.25, y + 1.37, TL::PAINT, {.93, .92, .88}, false);
+        fObj(sim::Obj::LightSwitch, a0 - .04, a1 + .04, e0 - .04, e1 + .04, y + 1.2, y + 1.42);
+    };
     V3 dirA{(double)fr.sa(), 0, 0};
 
     // ---- zones: which flat owns each bay's front (e<Ls) and back (e>Ls) part ----
@@ -461,6 +489,8 @@ void genBlock(const BuildingRec& R, Rng& rng) {
         }
         return Em();
     };
+    bool bedFound = false;
+    V3 bedSpot{}, bedLook{};
     auto furnish = [&](double ra0, double ra1, double eF, double eH, int k, int kind) {
         // eF: facade-side inner face, eH: hallway-side wall. sgn: +1 if eH > eF
         double y = Y(k), sg = eH > eF ? 1 : -1, depth = std::fabs(eH - eF);
@@ -468,31 +498,62 @@ void genBlock(const BuildingRec& R, Rng& rng) {
         auto box = [&](double aa0, double aa1, double d0, double d1, double h0, double h1, int t, const V3& c, bool col = true) {
             fBox(aa0, aa1, std::min(E(d0), E(d1)), std::max(E(d0), E(d1)), y + h0, y + h1, t, c, col);
         };
+        auto obj = [&](sim::Obj kd, double aa0, double aa1, double d0, double d1, double h0, double h1) {
+            fObj(kd, aa0, aa1, E(d0), E(d1), y + h0, y + h1);
+        };
         V3 fab = rng.pick(FABRICS), wood{.72 + rng() * .15, .52 + rng() * .1, .38};
         double w = ra1 - ra0, mid = (ra0 + ra1) / 2;
         if (kind == 0) { // bedroom
             double bl = std::min(2.0, depth - 1.0);
             box(ra0 + .06, ra0 + 1.0, .25, .25 + bl, 0, .45, TL::FABRIC, fab);
             box(ra0 + .1, ra0 + .96, .3, .7, .45, .6, TL::FABRIC, {.95, .95, .95}, false);
-            if (w > 2.2) box(ra1 - .65, ra1 - .05, depth - 1.5, depth - .15 > 1.5 ? depth - .15 : 1.5, 0, 2.0, TL::WOOD, wood);
+            obj(sim::Obj::Bed, ra0 + .06, ra0 + 1.0, .25, .25 + bl, 0, .6);
+            bedFound = true;
+            bedSpot = fP(ra0 + 1.45, y, E(.25 + bl * .5));
+            bedLook = {-(double)fr.sa(), 0, 0};
+            if (w > 2.2) {
+                box(ra1 - .65, ra1 - .05, depth - 1.5, depth - .15 > 1.5 ? depth - .15 : 1.5, 0, 2.0, TL::WOOD, wood);
+                obj(sim::Obj::Wardrobe, ra1 - .65, ra1 - .05, depth - 1.5, depth - .15 > 1.5 ? depth - .15 : 1.5, 0, 2.0);
+            }
             double cx = fr.X(ra0 + .02), z0 = fr.Z(E(.3)), z1 = fr.Z(E(.3 + std::min(1.8, bl)));
             vrect(0, cx, fr.sa(), std::min(z0, z1), std::max(z0, z1), y + .6, y + 2.1, TL::CARPET, {1, 1, 1}, 2.0);
         } else if (kind == 1) { // living room
             double sl = std::min(2.0, depth - 1.4);
             box(ra1 - .85, ra1 - .05, .6, .6 + sl, 0, .45, TL::FABRIC, fab);
             box(ra1 - .25, ra1 - .05, .6, .6 + sl, .45, .9, TL::FABRIC, fab, false);
+            obj(sim::Obj::Sofa, ra1 - .85, ra1 - .05, .6, .6 + sl, 0, .9);
             double ul = std::min(2.8, depth - 1.3);
             box(ra0 + .05, ra0 + .55, .3, .3 + ul, 0, 2.1, TL::WOOD, {.45, .3, .2});
             box(ra0 + .56, ra0 + .6, .3 + ul * .3, .3 + ul * .3 + .7, .8, 1.3, TL::PAINT, {.08, .08, .1}, false); // TV niche screen
-            if (w > 2.4) box(mid - .4, mid + .4, depth * .45 - .5, depth * .45 + .5, 0, .74, TL::WOOD, wood);
+            obj(sim::Obj::TV, ra0 + .3, ra0 + .62, .3 + ul * .3, .3 + ul * .3 + .7, .8, 1.3);
+            if (w > 2.4) {
+                box(mid - .4, mid + .4, depth * .45 - .5, depth * .45 + .5, 0, .74, TL::WOOD, wood);
+                obj(sim::Obj::Table, mid - .4, mid + .4, depth * .45 - .5, depth * .45 + .5, 0, .8);
+            }
             double x0 = fr.X(mid - .9), x1 = fr.X(mid + .9), z0 = fr.Z(E(depth * .45 - 1.1)), z1 = fr.Z(E(depth * .45 + 1.1));
             hrect(std::min(x0, x1), std::min(z0, z1), std::max(x0, x1), std::max(z0, z1), y + .01, true, TL::CARPET, {1, 1, 1}, 2.2);
         } else if (kind == 2) { // kitchen
             box(ra0 + .05, ra0 + .65, .3, .9, 0, .85, TL::PAINT, {.95, .95, .93});
             box(ra0 + .05, ra0 + .65, .3, .9, .85, .88, TL::METAL, {.25, .25, .27}, false);
+            obj(sim::Obj::Stove, ra0 + .05, ra0 + .65, .3, .9, 0, .95);
             box(ra0 + .05, ra0 + .7, 1.0, 1.65, 0, 1.7, TL::PAINT, {.93, .93, .9});
+            obj(sim::Obj::Fridge, ra0 + .05, ra0 + .7, 1.0, 1.65, 0, 1.7);
             box(ra1 - 1.0, ra1 - .1, .5, 1.3, 0, .74, TL::WOOD, wood);
+            obj(sim::Obj::Table, ra1 - 1.0, ra1 - .1, .5, 1.3, 0, .8);
             box(ra1 - 1.3, ra1 - 1.0, .7, 1.0, 0, .45, TL::WOOD, wood);
+            if (depth > 2.8) {
+                // sink unit with an enamel basin, and a wall cupboard above it
+                box(ra0 + .05, ra0 + .65, 1.75, 2.35, 0, .85, TL::PAINT, {.95, .95, .93});
+                box(ra0 + .1, ra0 + .6, 1.8, 2.3, .85, .88, TL::METAL, {.62, .64, .66}, false);
+                box(ra0 + .05, ra0 + .12, 1.98, 2.08, .88, 1.1, TL::METAL, {.7, .7, .72}, false); // tap
+                obj(sim::Obj::KitchenSink, ra0 + .05, ra0 + .65, 1.75, 2.35, 0, 1.0);
+                box(ra0 + .05, ra0 + .4, 1.75, 2.35, 1.45, 2.1, TL::PAINT, {.9, .88, .8}, false);
+                obj(sim::Obj::Cupboard, ra0 + .05, ra0 + .42, 1.75, 2.35, 1.45, 2.1);
+            }
+            // wired radio ("radiopunkt") on the side wall above the table
+            box(ra1 - .1, ra1 - .02, .62, .92, 1.5, 1.72, TL::PAINT, {.55, .38, .26}, false);
+            box(ra1 - .11, ra1 - .1, .66, .88, 1.54, 1.68, TL::PLANK, {.85, .8, .7}, false);
+            obj(sim::Obj::Radio, ra1 - .2, ra1 - .02, .6, .94, 1.45, 1.77);
         } else if (kind == 3) { // shop
             box(ra0 + .05, ra0 + .5, .5, depth - 1.2, 0, 2.0, TL::WOOD, {.6, .45, .3});
             for (double d = .7; d < depth - 1.4; d += .5)
@@ -514,6 +575,7 @@ void genBlock(const BuildingRec& R, Rng& rng) {
             }
         }
     };
+    const int flatsPerFloor = nFlat;
     for (size_t fi = 0; fi < flats.size(); fi++) {
         const Flat& fl = flats[fi];
         double aS = fl.b0 == 0 ? WALL_T : fl.b0 * bw, aE = fl.b1 == NB - 1 ? W - WALL_T : (fl.b1 + 1) * bw;
@@ -528,8 +590,26 @@ void genBlock(const BuildingRec& R, Rng& rng) {
             double g0 = std::min(bA, bB) * bw, g1 = (std::max(bA, bB) + 1) * bw;
             groups.push_back({std::max(g0, aS), std::min(g1, aE)});
         }
+        // the bathroom takes the far end of the hallway, away from the stairwell
+        const double BATH_W = 2.2;
+        const int dir = fl.stair < fl.b0 ? 1 : -1;                   // +1: the far end is aE
+        const double far = dir > 0 ? aE : aS, cB = far - dir * BATH_W; // cB: plane of the bathroom wall
+        const double bLo = std::min(cB, far), bHi = std::max(cB, far);
+        const bool farIsEnd = dir > 0 ? fl.b1 == NB - 1 : fl.b0 == 0;  // far wall is the building's end wall
+        bool bathOK = aE - aS >= 4.8 && !school && !univer;
+        for (auto& g : groups) {
+            double m = (g.first + g.second) / 2;
+            if (m + .45 > bLo - .3 && m - .45 < bHi + .3) bathOK = false; // a room door would open into it
+        }
+        // the flat's front door, on the stairwell side
+        const double aDoor = dir > 0 ? aS : aE;
+
         for (int k = 0; k < F; k++) {
             double y = Y(k), yc = ceilAt(k);
+            const bool home = (int)fi == I->homeFlat && k == I->homeFloor;
+            curFlat = (int)fi; curFloor = k;
+            bedFound = false;
+            bool kitchen = false;
             fFloor(aS, aE, WALL_T, Ls - 1.4, y, TL::PARQUET, {1, 1, 1});
             fFloor(aS, aE, Ls - 1.4, Ls, y, TL::LINO, {1, 1, 1});
             fFloor(aS, aE, Ls, D - WALL_T, y, TL::PARQUET, {1, 1, 1});
@@ -550,7 +630,7 @@ void genBlock(const BuildingRec& R, Rng& rng) {
             }
             // rooms
             for (size_t g = 0; g < groups.size(); g++) {
-                double r0 = groups[g].first + .05, r1 = groups[g].second - .05;
+                double r0 = groups[g].first + .05, r1 = groups[g].second - .05, m = (groups[g].first + groups[g].second) / 2;
                 for (int fb = 0; fb < 2; fb++) {
                     bool front = fb == 0;
                     double eF = front ? WALL_T : D - WALL_T, eH = front ? Ls - 1.4 - .05 : Ls + .05;
@@ -568,14 +648,76 @@ void genBlock(const BuildingRec& R, Rng& rng) {
                     else if (univer) kind = 5;
                     else if (g == 0 && front) kind = 2;
                     else kind = (int)((g + fb + k) % 2);
+                    if (kind == 2) kitchen = true;
+                    curRoom = addRoom((int)fi, k);
                     furnish(r0, r1, eF + (front ? .02 : -.02), eH, k, kind);
                     Em le = facadeEm(front, r0, r1, k);
-                    if (le) lamp(fr.X((r0 + r1) / 2), yc - .02, fr.Z((eF + eH) / 2), le, fRoom(r0, r1, eF, eH, y, yc), 5.5, .95);
+                    if (home && !le) le = em(HOME_LAMP, 99);
+                    if (le) roomLamp(curRoom, home, lamp(fr.X((r0 + r1) / 2), yc - .02, fr.Z((eF + eH) / 2), le, fRoom(r0, r1, eF, eH, y, yc), 5.5, .95));
+                    // switch on the room side of the door
+                    double se = front ? eH - .02 : eH;
+                    if (kind <= 2) lightSwitch(m + .55, m + .65, se, se + .02, y);
                 }
             }
-            // hallway light, on whenever one of the flat's front windows is lit
-            Em he = facadeEm(true, aS, aE, k);
-            if (he) lamp(fr.X((aS + aE) / 2), yc - .02, fr.Z(Ls - .7), he, fRoom(aS, aE, Ls - 1.4, Ls, y, yc), 4, .7);
+            // hallway: light over the lino, switch by the front door
+            curRoom = addRoom((int)fi, k);
+            {
+                double h0 = bathOK && dir < 0 ? cB : aS, h1 = bathOK && dir > 0 ? cB : aE;
+                Em he = facadeEm(true, aS, aE, k);
+                if (home && !he) he = em(HOME_LAMP, 99);
+                if (he) roomLamp(curRoom, home, lamp(fr.X((h0 + h1) / 2), yc - .02, fr.Z(Ls - .7), he, fRoom(h0, h1, Ls - 1.4, Ls, y, yc), 4, .7));
+                double sa = aDoor + dir * .35;
+                lightSwitch(std::min(sa, sa + dir * .1), std::max(sa, sa + dir * .1), Ls - .07, Ls - .05, y);
+            }
+            // bathroom (combined WC): tiles to 1.6 m, oil paint above, bath across the far end
+            if (bathOK) {
+                curRoom = addRoom((int)fi, k);
+                std::vector<Hole> door{{Ls - 1.2, Ls - .45, y, y + DOOR_H}};
+                fPartA(cB, Ls - 1.4, Ls, y, yc, door, pp.first, pp.second, pp.first, pp.second);
+                {
+                    double x0 = fr.X(bLo), x1 = fr.X(bHi), z0 = fr.Z(Ls - 1.4), z1 = fr.Z(Ls);
+                    hrect(std::min(x0, x1), std::min(z0, z1), std::max(x0, x1), std::max(z0, z1), y + .004, true, TL::FLOORTILE, {1, 1, 1}, 1.2);
+                }
+                const double off = farIsEnd ? 0 : .05, g = .012;
+                const V3 WHITE_T{1, 1, 1}, OILPAINT{.72, .84, .8};
+                auto band = [&](auto&& wall) { wall(y, y + 1.6, TL::BATHTILE, WHITE_T, .8); wall(y + 1.6, yc, TL::PAINT, OILPAINT, 1.2); };
+                auto eWall = [&](double e, bool plusE) { // wall plane e, facing +e / -e
+                    band([&](double y0, double y1, int t, const V3& c, double ts) {
+                        double x0 = fr.X(bLo), x1 = fr.X(bHi);
+                        vrect(1, fr.Z(e), plusE ? fr.se() : -fr.se(), std::min(x0, x1), std::max(x0, x1), y0, y1, t, c, ts);
+                    });
+                };
+                auto aWall = [&](double a, int facing, const std::vector<Hole>& hs) { // wall plane a, facing +a (1) / -a (-1)
+                    band([&](double y0, double y1, int t, const V3& c, double ts) {
+                        double z0 = fr.Z(Ls - 1.4), z1 = fr.Z(Ls);
+                        wallHoles(0, fr.X(a), facing * fr.sa(), std::min(z0, z1), std::max(z0, z1), y0, y1, toHolesA(hs), t, c, false, 0, 0, ts);
+                    });
+                };
+                eWall(Ls - 1.35 + g, true);
+                eWall(Ls - .05 - g, false);
+                aWall(cB + dir * (.05 + g), dir, door);
+                aWall(far - dir * (off + g), -dir, {});
+                auto A = [&](double d) { return far - dir * d; }; // distance in from the far wall
+                const V3 ENAMEL{.96, .96, .94};
+                fBox(A(.72), A(.02 + off), Ls - 1.33, Ls - .07, y, y + .55, TL::PAINT, ENAMEL);
+                fBox(A(.66), A(.08 + off), Ls - 1.27, Ls - .13, y + .5, y + .56, TL::PAINT, {.62, .78, .86}, false);
+                fObj(sim::Obj::Bath, A(.72), A(off), Ls - 1.35, Ls - .05, y, y + .7);
+                fBox(A(1.2), A(.82), Ls - .72, Ls - .07, y, y + .42, TL::PAINT, ENAMEL);
+                fBox(A(1.18), A(.84), Ls - .25, Ls - .07, y + .42, y + .85, TL::PAINT, ENAMEL, false);
+                fObj(sim::Obj::Toilet, A(1.22), A(.8), Ls - .75, Ls - .05, y, y + .9);
+                fBox(A(1.28), A(.8), Ls - 1.33, Ls - .9, y + .72, y + .86, TL::PAINT, ENAMEL, false);
+                fBox(A(1.1), A(.98), Ls - 1.3, Ls - 1.18, y, y + .72, TL::PAINT, ENAMEL, false);
+                fBox(A(1.25), A(.83), Ls - 1.337, Ls - 1.33, y + 1.2, y + 1.7, TL::METAL, {.8, .86, .9}, false); // mirror
+                fObj(sim::Obj::BathSink, A(1.3), A(.78), Ls - 1.35, Ls - .88, y + .55, y + 1.0);
+                Em be = facadeEm(true, aS, aE, k);
+                if (home && !be) be = em(HOME_LAMP, 99);
+                if (be) roomLamp(curRoom, home, lamp(fr.X(A(1.1)), yc - .02, fr.Z(Ls - .7), be, fRoom(bLo, bHi, Ls - 1.4, Ls, y, yc), 3.5, .6));
+                // its switch is outside, in the hallway, as they always are
+                double sa = cB - dir * .06;
+                lightSwitch(std::min(sa, sa - dir * .02), std::max(sa, sa - dir * .02), Ls - .38, Ls - .28, y);
+            }
+            if (bathOK && kitchen && bedFound)
+                I->homes.push_back({(int)fi, k, k * flatsPerFloor + (int)fi + 1, bedSpot, bedLook});
         }
     }
     // back flats behind stairwells
@@ -583,11 +725,13 @@ void genBlock(const BuildingRec& R, Rng& rng) {
         double a0 = j * bw + (j == 0 ? WALL_T : 0), a1 = (j + 1) * bw - (j == NB - 1 ? WALL_T : 0);
         for (int k = 0; k < F; k++) {
             double y = Y(k), yc = ceilAt(k);
+            curFlat = zoneB[j]; curFloor = k;
+            curRoom = addRoom(curFlat, k);
             fFloor(a0, a1, Ls, D - WALL_T, y, TL::PARQUET, {1, 1, 1});
             fCeil(a0, a1, Ls, D - WALL_T, yc, TL::WHITEW, WHITE3);
             furnish(a0 + .05, a1 - .05, D - WALL_T - .02, Ls + 1.0, k, school ? 4 : univer ? 5 : 0);
             Em le = facadeEm(false, a0, a1, k);
-            if (le) lamp(fr.X((a0 + a1) / 2), yc - .02, fr.Z((Ls + D) / 2), le, fRoom(a0, a1, Ls, D - WALL_T, y, yc), 5, .9);
+            if (le) roomLamp(curRoom, false, lamp(fr.X((a0 + a1) / 2), yc - .02, fr.Z((Ls + D) / 2), le, fRoom(a0, a1, Ls, D - WALL_T, y, yc), 5, .9));
         }
     }
 }
@@ -746,10 +890,11 @@ void genIzbaInt(const BuildingRec& R, Rng& rng) {
 
 } // namespace
 
-Interior buildInterior(int ri, double seed) {
+Interior buildInterior(int ri, double seed, int homeFlat, int homeFloor) {
     Interior out;
     const BuildingRec& R = RECS[ri];
     out.rec = ri; out.ox = R.ox; out.oz = R.oz; out.cs = R.cs; out.sn = R.sn;
+    out.homeFlat = homeFlat; out.homeFloor = homeFloor;
     I = &out;
     B.reset();
     B.ox = R.ox; B.oz = R.oz; B.cs = R.cs; B.sn = R.sn;

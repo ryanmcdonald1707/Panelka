@@ -13,6 +13,7 @@ std::vector<V3> SMOKE;
 std::vector<Light> LIGHTS;
 std::string SEASON = "autumn";
 std::vector<BuildingRec> RECS;
+std::vector<WObj> WOBJ;
 
 /* ================= PALETTES ================= */
 using Pal = std::vector<V3>;
@@ -800,6 +801,8 @@ static void kiosk(double cx, double cz, int rot, Rng& R) {
     double px = .07, tw = B.textW(w, px);
     B.text(w, {-tw / 2, 2.6, 1.3}, {1, 0, 0}, {0, 1, 0}, px, {1, .95, .6}, em({1, .9, .5}, .05));
     addCol(wRect(cx, cz, rot, -1.7, -1.4, 1.7, 1.9));
+    Rect r = wRect(cx, cz, rot, -1.5, -1.2, 1.5, 1.2);
+    WOBJ.push_back({sim::Obj::Kiosk, {r[0], 0, r[1]}, {r[2], 2.4, r[3]}});
 }
 static void busStop(double cx, double cz, int rot, Rng& R) {
     B.xf(cx, cz, rot);
@@ -815,6 +818,8 @@ static void busStop(double cx, double cz, int rot, Rng& R) {
     B.box(-2.4, 2.6, -1.2, 2.4, 2.9, 1.3, TL::CONC, g, 9); B.box(-1.6, 0, -.65, 1.6, .45, -.25, TL::WOOD, {1, 1, 1}, 9);
     B.box(2.5, 0, .9, 2.6, 2.6, 1, TL::METAL, {.5, .5, .52}, 99); B.box(2.3, 2.2, .94, 2.8, 2.7, .96, TL::PAINT, {.95, .85, .3}, 99);
     addCol(wRect(cx, cz, rot, -2.4, -1.2, 2.4, 1));
+    Rect r = wRect(cx, cz, rot, -2.1, -1, 2.1, .9);
+    WOBJ.push_back({sim::Obj::BusStop, {r[0], 0, r[1]}, {r[2], 2.6, r[3]}});
 }
 static void pole(double x, double z, double h) {
     B.xf(0, 0, 0);
@@ -1498,6 +1503,7 @@ Info generate(const std::string& mode, const std::string& style, double seed) {
     double off = mode == "district" ? 0 : mode == "old" ? 100000 : mode == "village" ? 200000 : 300000;
     Rng R(seed + off);
     RECS.clear();
+    WOBJ.clear();
     if (mode == "district") return genDistrict(R, style);
     if (mode == "old") return genOld(R);
     if (mode == "village") return genVillage(R);
