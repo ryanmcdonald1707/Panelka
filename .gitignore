@@ -1,0 +1,10 @@
+build/
+build-*/
+out/
+.vscode/
+.idea/
+*.o
+*.obj
+/panelka
+panelka_*.png
+panelka_*.zip
