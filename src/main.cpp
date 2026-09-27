@@ -1663,6 +1663,12 @@ int main() {
         if (autoShot && ui.bootGone) {
             if (autoFrames == 1 && getenv("PANELKA_WALK")) setWalk(true);
             if (autoFrames == 1 && getenv("PANELKA_LIVE")) startLife();
+            if (autoFrames == 2 && state.walk)
+                if (const char* p = getenv("PANELKA_POS")) { // "x,z,yaw,pitch": stand anywhere (world, radians)
+                    double x = 0, z = 0, yw = 0, pt = 0;
+                    sscanf(p, "%lf,%lf,%lf,%lf", &x, &z, &yw, &pt);
+                    Wk.x = x; Wk.z = z; Wk.yaw = yw; Wk.pitch = pt; Wk.feet = 0; Wk.vy = 0;
+                }
             if (autoFrames == 2 && game::active()) { // PANELKA_LIVE_RUN="Stove:1,wait:30" · PANELKA_LIVE_LOOK=Stove
                 if (const char* r = getenv("PANELKA_LIVE_RUN")) game::runScript(r);
                 if (const char* l = getenv("PANELKA_LIVE_LOOK"))

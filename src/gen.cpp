@@ -163,7 +163,9 @@ void Builder::obox(V3 o, V3 U, V3 Nn, double lu, double lv, double ln, int t, co
     if (!has('l')) wall(o, Nn, upv, ln, lv, t, col, ts, e);
     if (!has('r')) wall(addv(addv(o, U, lu), Nn, ln), nN, upv, ln, lv, t, col, ts, e);
     if (!has('t')) wall(addv(addv(o, upv, lv), Nn, ln), U, nN, lu, ln, tt, tc, ts, e);
-    if (opt.bottom) wall(o, U, Nn, lu, ln, t, col, ts, e);
+    // The underside only shows on raised boxes (balcony slabs, canopies, wall cupboards, lamps);
+    // anything standing on the ground keeps it skipped.
+    if (opt.bottom || o[1] > .05) wall(o, U, Nn, lu, ln, t, col, ts, e);
 }
 void Builder::box(double x0, double y0, double z0, double x1, double y1, double z1, int t, const V3& col, TS ts, const Opt& opt) {
     obox({x0, y0, z0}, XV, ZV, x1 - x0, y1 - y0, z1 - z0, t, col, ts, opt);
